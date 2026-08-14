@@ -140,6 +140,8 @@ class A2VidPipelineTwoStage(TI2VidTwoStagesPipeline):
         Returns:
             Path to the output video file.
         """
+        self._require_dev_transformer()
+
         if audio_path is None:
             raise ValueError("audio_path is required for A2VidPipelineTwoStage")
 
@@ -192,7 +194,7 @@ class A2VidPipelineTwoStage(TI2VidTwoStagesPipeline):
         F, H_half, W_half = compute_video_latent_shape(num_frames, half_h, half_w)
         video_shape = (1, F * H_half * W_half, 128)
 
-        video_positions_1 = compute_video_positions(F, H_half, W_half)
+        video_positions_1 = compute_video_positions(F, H_half, W_half, frame_rate=frame_rate)
         audio_positions = compute_audio_positions(audio_T)
 
         # I2V conditioning at half resolution. ``images`` is the upstream-iso
@@ -235,6 +237,7 @@ class A2VidPipelineTwoStage(TI2VidTwoStagesPipeline):
             sigma=1.0,
             initial_latent=None,
             legacy_scalar_blend=True,
+            mark_first_frame=True,
         )
 
         # Audio frozen in Stage 1 (denoise_mask=0 = preserve)
@@ -312,7 +315,7 @@ class A2VidPipelineTwoStage(TI2VidTwoStagesPipeline):
         sigmas_2 = STAGE_2_SIGMAS[: stage2_steps + 1] if stage2_steps else STAGE_2_SIGMAS
         start_sigma = sigmas_2[0]
 
-        video_positions_2 = compute_video_positions(F, H_full, W_full)
+        video_positions_2 = compute_video_positions(F, H_full, W_full, frame_rate=frame_rate)
 
         # Stage 2 video: scalar-blend bit-matches legacy inline arithmetic.
         video_state_2 = create_noised_state(
@@ -324,6 +327,7 @@ class A2VidPipelineTwoStage(TI2VidTwoStagesPipeline):
             sigma=start_sigma,
             initial_latent=video_tokens,
             legacy_scalar_blend=True,
+            mark_first_frame=True,
         )
 
         # Stage 2 audio: default mask path matches legacy noise_latent_state.

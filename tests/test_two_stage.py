@@ -266,6 +266,45 @@ class TestTwoStagePipelineInstantiation:
         assert pipe._distilled_lora == "custom-lora.safetensors"
         assert pipe._distilled_lora_strength == 0.8
 
+    def test_missing_lora_reloads_prefused_distilled_transformer(self, tmp_path, monkeypatch):
+        from ltx_pipelines_mlx import ti2vid_two_stages
+        from ltx_pipelines_mlx.ti2vid_two_stages import TI2VidTwoStagesPipeline
+
+        model_dir = tmp_path / "prefused-model"
+        model_dir.mkdir()
+        distilled_path = model_dir / "transformer-distilled.safetensors"
+        distilled_path.touch()
+        pipe = TI2VidTwoStagesPipeline(model_dir=str(model_dir), low_memory=True)
+        original_dit = object()
+        replacement_dit = object()
+        pipe.dit = original_dit
+
+        monkeypatch.setattr(ti2vid_two_stages, "aggressive_cleanup", lambda: None)
+        monkeypatch.setattr(
+            pipe,
+            "_load_transformer_with_optional_streaming",
+            lambda path: replacement_dit if path == distilled_path else None,
+        )
+
+        pipe._fuse_distilled_lora(original_dit)
+
+        assert pipe.dit is replacement_dit
+
+    def test_custom_lora_strength_still_requires_standalone_lora(self, tmp_path):
+        from ltx_pipelines_mlx.ti2vid_two_stages import TI2VidTwoStagesPipeline
+
+        model_dir = tmp_path / "prefused-model"
+        model_dir.mkdir()
+        (model_dir / "transformer-distilled.safetensors").touch()
+        pipe = TI2VidTwoStagesPipeline(
+            model_dir=str(model_dir),
+            low_memory=True,
+            distilled_lora_strength=0.5,
+        )
+
+        with pytest.raises(FileNotFoundError, match="standalone distilled LoRA"):
+            pipe._fuse_distilled_lora(object())
+
     def test_keyframe_inherits_from_two_stage(self):
         from ltx_pipelines_mlx.keyframe_interpolation import KeyframeInterpolationPipeline
         from ltx_pipelines_mlx.ti2vid_two_stages import TI2VidTwoStagesPipeline

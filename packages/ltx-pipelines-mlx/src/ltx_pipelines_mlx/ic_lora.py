@@ -341,6 +341,7 @@ class ICLoraPipeline(BasePipeline):
             num_frames=num_frames,
             video_encoder=video_encoder,
             reference_downscale_factor=self.reference_downscale_factor,
+            frame_rate=frame_rate,
             conditioning_attention_strength=conditioning_attention_strength,
             conditioning_attention_mask=conditioning_attention_mask,
         )
@@ -487,6 +488,7 @@ class ICLoraPipeline(BasePipeline):
             seed=seed,
             sigma=1.0,
             initial_latent=None,
+            mark_first_frame=True,
         )
         audio_state = create_noised_state(
             base_shape=audio_shape,
@@ -602,6 +604,7 @@ class ICLoraPipeline(BasePipeline):
                 num_frames=num_frames,
                 video_encoder=self.vae_encoder,
                 reference_downscale_factor=self.reference_downscale_factor,
+                frame_rate=frame_rate,
                 conditioning_attention_strength=conditioning_attention_strength,
                 conditioning_attention_mask=conditioning_attention_mask,
             )
@@ -647,6 +650,7 @@ class ICLoraPipeline(BasePipeline):
             sigma=start_sigma,
             initial_latent=video_tokens_up,
             legacy_scalar_blend=True,
+            mark_first_frame=True,
         )
 
         # Audio refined in stage 2

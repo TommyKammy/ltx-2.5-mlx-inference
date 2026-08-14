@@ -20,9 +20,19 @@ The compatibility layer adds:
 - updated conditioning fields and sampler plumbing
 - regression tests that keep the LTX-2.3 behavior intact
 
-The implementation has been smoke-tested with
+The implementation has been smoke-tested on Apple Silicon with
 [`mlx-community/ltx-2.5-mlx`](https://huggingface.co/mlx-community/ltx-2.5-mlx)
-for image-to-video generation with native video and audio output.
+for distilled and dev-model T2V/I2V generation with native video and audio
+output.
+
+> [!WARNING]
+> The tested model revision (`851cff741ecbd650b7d417af74c3e7b73f76dd64`)
+> contains both `transformer-dev.safetensors` and
+> `transformer-distilled.safetensors`, but no standalone distilled LoRA. At
+> the default LoRA strength (`1.0`), two-stage pipelines automatically reload
+> the equivalent pre-fused distilled transformer for stage 2. A custom
+> `--distilled-lora-strength` still requires a compatible standalone LoRA.
+> IC-LoRA and LipDub additionally require their task-specific LoRA weights.
 
 ## Features
 
@@ -62,95 +72,198 @@ for image-to-video generation with native video and audio output.
 ```bash
 git clone https://github.com/TommyKammy/ltx-2.5-mlx-inference.git
 cd ltx-2.5-mlx-inference
-uv sync --all-extras
+uv sync --frozen --all-extras
 ```
+
+The lockfile pins `mlx-lm` to an exact upstream revision that contains the
+Gemma 4 loader required by LTX-2.5. Keep `--frozen` when installing; the older
+`mlx-lm` 0.31.1 release does not provide `mlx_lm.models.gemma4`.
 
 Download compatible model weights separately. For example:
 
 ```bash
-huggingface-cli download mlx-community/ltx-2.5-mlx \
+uv run hf download mlx-community/ltx-2.5-mlx \
+  --revision 851cff741ecbd650b7d417af74c3e7b73f76dd64 \
   --local-dir models/ltx-2.5-mlx
 ```
+
+That tested LTX-2.5 snapshot is approximately **110 GB**. Keep at least
+120 GB of free disk space for the download, temporary files, and generated
+output.
 
 The model repository contains its own license and acceptable-use terms. Read
 and accept those terms before downloading or using the weights.
 
 ## Quick Start
 
-### CLI
+### LTX-2.5 CLI
+
+Every command is run through `uv run`, so activating `.venv` is not required.
+LTX-2.5 was trained at 24 fps; pass the mandatory `--frame-rate 24` explicitly.
 
 ```bash
-# Text-to-Video — pick a pipeline mode (one of `--two-stage`, `--two-stages-hq`, `--one-stage`, `--distilled`).
-# Two-stage is the upstream-recommended production default.
-ltx-2-mlx generate --prompt "A sunset over the ocean" --two-stage -o sunset.mp4
+# Text-to-Video
+uv run ltx-2-mlx generate \
+  --model models/ltx-2.5-mlx \
+  --prompt "A sunset over the ocean" \
+  --distilled --frame-rate 24 \
+  --output sunset.mp4
 
-# Image-to-Video (any mode supports --image)
-ltx-2-mlx generate --prompt "Animate this" --image photo.jpg --two-stage -o animated.mp4
+# Image-to-Video
+uv run ltx-2-mlx generate \
+  --model models/ltx-2.5-mlx \
+  --prompt "Animate this family photograph with natural, subtle motion" \
+  --image photo.jpg \
+  --distilled --frame-rate 24 \
+  --height 576 --width 1024 --frames 121 \
+  --output animated.mp4
+
+# Dev transformer, one-stage T2V
+uv run ltx-2-mlx generate \
+  --model models/ltx-2.5-mlx \
+  --prompt "A cinematic sunrise over a still lake" \
+  --one-stage --frame-rate 24 \
+  --output sunrise-dev.mp4
+
+# Dev stage 1, pre-fused distilled stage 2
+uv run ltx-2-mlx generate \
+  --model models/ltx-2.5-mlx \
+  --prompt "A cinematic sunrise over a still lake" \
+  --two-stage --frame-rate 24 \
+  --output sunrise-two-stage.mp4
+
+# Inspect the downloaded model without generating
+uv run ltx-2-mlx info --model models/ltx-2.5-mlx
+```
+
+Add `--low-ram` to stream the dev and pre-fused distilled checkpoints instead
+of materializing them. Custom stage-2 LoRA strengths require the standalone
+LoRA named by `--distilled-lora`.
+
+### Existing LTX-2.3 pipelines
+
+The remaining modes are retained from `dgrauet/ltx-2-mlx`. They require an
+LTX-2.3 model, which is intentionally specified below so the CLI never silently
+falls back to a different model than the one you downloaded.
+
+```bash
+LTX23_MODEL=dgrauet/ltx-2.3-mlx-q8
+
+# Two-stage Text-to-Video (dev model + CFG + upscale)
+uv run ltx-2-mlx generate --model "$LTX23_MODEL" \
+  --prompt "A sunset over the ocean" --two-stage --frame-rate 24 -o sunset-23.mp4
+
+# Image-to-Video
+uv run ltx-2-mlx generate --model "$LTX23_MODEL" \
+  --prompt "Animate this" --image photo.jpg --two-stage --frame-rate 24 -o animated-23.mp4
 
 # HQ (res_2s sampler, highest quality)
-ltx-2-mlx generate --prompt "A scene" --two-stages-hq --stage1-steps 20 -o hq.mp4
+uv run ltx-2-mlx generate --model "$LTX23_MODEL" \
+  --prompt "A scene" --two-stages-hq --frame-rate 24 --stage1-steps 20 -o hq.mp4
 
-# Distilled two-stage (fastest, mirrors upstream DistilledPipeline)
-ltx-2-mlx generate --prompt "A scene" --distilled -H 720 -W 1280 -o distilled.mp4
+# Distilled two-stage
+uv run ltx-2-mlx generate --model "$LTX23_MODEL" \
+  --prompt "A scene" --distilled --frame-rate 24 -H 720 -W 1280 -o distilled-23.mp4
 
 # One-stage dev + CFG (full target res, mirrors upstream TI2VidOneStagePipeline)
-ltx-2-mlx generate --prompt "A scene" --one-stage -o one_stage.mp4
+uv run ltx-2-mlx generate --model "$LTX23_MODEL" \
+  --prompt "A scene" --one-stage --frame-rate 24 -o one_stage.mp4
 
 # Audio-to-Video
-ltx-2-mlx a2v --prompt "Music video" --audio music.wav -o a2v.mp4
+uv run ltx-2-mlx a2v --model "$LTX23_MODEL" \
+  --prompt "Music video" --audio music.wav --frame-rate 24 -o a2v.mp4
 
 # Retake (regenerate frames 1-3 of a video)
-ltx-2-mlx retake --prompt "New action" --video source.mp4 --start 1 --end 3 -o retake.mp4
+uv run ltx-2-mlx retake --model "$LTX23_MODEL" \
+  --prompt "New action" --video source.mp4 --start 1 --end 3 -o retake.mp4
 
 # Extend (add 2 latent frames after)
-ltx-2-mlx extend --prompt "Continue the scene" --video source.mp4 --extend-frames 2 -o extended.mp4
+uv run ltx-2-mlx extend --model "$LTX23_MODEL" \
+  --prompt "Continue the scene" --video source.mp4 --extend-frames 2 -o extended.mp4
 
 # Keyframe interpolation
-ltx-2-mlx keyframe --prompt "Smooth transition" --start frame1.png --end frame2.png -o transition.mp4
+uv run ltx-2-mlx keyframe --model "$LTX23_MODEL" \
+  --prompt "Smooth transition" --start frame1.png --end frame2.png \
+  --dev-transformer transformer-dev.safetensors \
+  --distilled-lora ltx-2.3-22b-distilled-lora-384.safetensors \
+  --frame-rate 24 -o transition.mp4
 
 # Prompt enhancement
-ltx-2-mlx enhance --prompt "a cat" --mode t2v
+uv run ltx-2-mlx enhance --prompt "a cat" --mode t2v
 
 # Use int4 model (fits 16GB)
-ltx-2-mlx generate -p "A cat" --distilled -o cat.mp4 --model dgrauet/ltx-2.3-mlx-q4
+uv run ltx-2-mlx generate --model dgrauet/ltx-2.3-mlx-q4 \
+  -p "A cat" --distilled --frame-rate 24 -o cat.mp4
 
 # Block streaming: bf16 model on 32 GB Mac
-ltx-2-mlx generate -p "A cat" --two-stage -o cat.mp4 --model dgrauet/ltx-2.3-mlx --low-ram
+uv run ltx-2-mlx generate --model dgrauet/ltx-2.3-mlx \
+  -p "A cat" --two-stage --frame-rate 24 --low-ram -o cat-bf16.mp4
 
 # Block streaming: q8 model on 16 GB Mac
-ltx-2-mlx generate -p "A cat" --distilled -o cat.mp4 --model dgrauet/ltx-2.3-mlx-q8 --low-ram
+uv run ltx-2-mlx generate --model "$LTX23_MODEL" \
+  -p "A cat" --distilled --frame-rate 24 --low-ram -o cat-q8.mp4
 
 # Block streaming works on every generate mode + a2v / keyframe / ic-lora
-ltx-2-mlx generate -p "A cat" -o cat.mp4 --two-stage --low-ram
-ltx-2-mlx generate -p "A cat" -o cat.mp4 --two-stages-hq --low-ram
-ltx-2-mlx a2v -p "music video" --audio music.wav -o a2v.mp4 --low-ram
-ltx-2-mlx keyframe -p "transition" --start a.png --end b.png -o kf.mp4 --low-ram
-ltx-2-mlx ic-lora -p "scene" --lora lora.safetensors 1.0 --video-conditioning depth.mp4 1.0 --low-ram -o out.mp4
+uv run ltx-2-mlx generate --model "$LTX23_MODEL" \
+  -p "A cat" --two-stage --frame-rate 24 --low-ram -o cat-streamed.mp4
+uv run ltx-2-mlx generate --model "$LTX23_MODEL" \
+  -p "A cat" --two-stages-hq --frame-rate 24 --low-ram -o cat-hq.mp4
+uv run ltx-2-mlx a2v --model "$LTX23_MODEL" \
+  -p "music video" --audio music.wav --frame-rate 24 --low-ram -o a2v-streamed.mp4
+uv run ltx-2-mlx keyframe --model "$LTX23_MODEL" \
+  -p "transition" --start a.png --end b.png \
+  --dev-transformer transformer-dev.safetensors \
+  --distilled-lora ltx-2.3-22b-distilled-lora-384.safetensors \
+  --frame-rate 24 --low-ram -o kf.mp4
+uv run ltx-2-mlx ic-lora --model "$LTX23_MODEL" \
+  -p "scene" --lora lora.safetensors 1.0 \
+  --video-conditioning depth.mp4 1.0 --frame-rate 24 --low-ram -o out.mp4
 
 # HDR IC-LoRA — V2V upgrade an SDR video to linear HDR (saves out.mp4 + out.hdr.npz)
-ltx-2-mlx hdr-ic-lora -p "cinematic golden hour" \
-    --lora Lightricks/LTX-2.3-22b-IC-LoRA-HDR 1.0 \
-    --video-conditioning source_sdr.mp4 1.0 --low-ram -o out.mp4
+uv run ltx-2-mlx hdr-ic-lora --model "$LTX23_MODEL" \
+  -p "cinematic golden hour" --frame-rate 24 \
+  --lora Lightricks/LTX-2.3-22b-IC-LoRA-HDR 1.0 \
+  --video-conditioning source_sdr.mp4 1.0 --low-ram -o out.mp4
 
 # HDR IC-LoRA — pure T2V (no conditioning video)
-ltx-2-mlx hdr-ic-lora -p "a sunset over the ocean, vivid HDR" \
-    --lora Lightricks/LTX-2.3-22b-IC-LoRA-HDR 1.0 --low-ram -o out.mp4
+uv run ltx-2-mlx hdr-ic-lora --model "$LTX23_MODEL" \
+  -p "a sunset over the ocean, vivid HDR" --frame-rate 24 \
+  --lora Lightricks/LTX-2.3-22b-IC-LoRA-HDR 1.0 --low-ram -o out.mp4
 
 # Modality tiling: split video tokens for long/HD scenarios that exceed attention memory.
 # Stack with --low-ram for max memory savings on big targets.
-ltx-2-mlx generate -p "long scene" --two-stage --low-ram \
-    --tile-frames 2 --tile-overlap 4 -o long.mp4
-ltx-2-mlx generate -p "1080p scene" --two-stages-hq --low-ram \
-    --tile-spatial 2 --tile-overlap 4 -H 1080 -W 1920 -o hd.mp4
+uv run ltx-2-mlx generate --model "$LTX23_MODEL" \
+  -p "long scene" --two-stage --frame-rate 24 --low-ram \
+  --tile-frames 2 --tile-overlap 4 -o long.mp4
+uv run ltx-2-mlx generate --model "$LTX23_MODEL" \
+  -p "1080p scene" --two-stages-hq --frame-rate 24 --low-ram \
+  --tile-spatial 2 --tile-overlap 4 -H 1080 -W 1920 -o hd.mp4
 
 # Model info
-ltx-2-mlx info --model dgrauet/ltx-2.3-mlx-q8
+uv run ltx-2-mlx info --model "$LTX23_MODEL"
 ```
 
 ### Python API
 
-Pick the pipeline class matching your target — every public class
-mirrors an upstream Lightricks/LTX-2 pipeline.
+LTX-2.5 uses `DistilledPipeline` with the downloaded local snapshot:
+
+```python
+from ltx_pipelines_mlx import DistilledPipeline
+
+pipe = DistilledPipeline(model_dir="models/ltx-2.5-mlx")
+pipe.generate_and_save(
+    prompt="A sunset over the ocean with waves crashing",
+    output_path="sunset.mp4",
+    height=576,
+    width=1024,
+    num_frames=121,
+    frame_rate=24,
+    seed=42,
+    image="photo.jpg",  # omit for T2V
+)
+```
+
+The dev-transformer API examples below are for LTX-2.3 models.
 
 Two-stage (recommended for most use cases — dev model + CFG + upscale):
 
@@ -164,6 +277,7 @@ pipe.generate_and_save(
     height=480,
     width=704,
     num_frames=97,
+    frame_rate=24,
     seed=42,
     image="photo.jpg",  # optional I2V
 )
@@ -185,6 +299,7 @@ pipe.generate_and_save(
     prompt="A musician performing",
     output_path="a2v.mp4",
     audio_path="music.wav",
+    frame_rate=24,
 )
 ```
 
@@ -300,7 +415,6 @@ ltx-2-mlx info       Model info and memory estimate
 
 - `LTX2_GEMMA_EVAL_EVERY=N` — per-layer `mx.eval` cadence in the Gemma forward (default: `1`, i.e. eval every layer). Keeps each Metal command buffer below the macOS GPU watchdog (~10 s) deadline. Set to `0` on Mac Studio / M-series Ultra owners who never see the watchdog crash to recover full lazy-graph throughput.
 - `LTX2_DIT_EVAL_EVERY=N` — flush the DiT block loop every N blocks (default: `8`, splits 48 blocks into 6 command buffers). Same trade-off as above; set to `0` on machines that don't crash to maximise throughput.
-- `LTX2_GEMMA_MAX_LENGTH=N` — cap Gemma padded sequence length (default: `1024`). Last-resort knob; quality risk on lower values because left-padded RoPE positions drift outside the LTX training distribution.
 - `LTX2_GEMMA_MAX_LENGTH=N` — cap padded Gemma sequence length (default 1024). Reducing to 512/256 speeds Gemma forward proportionally but **shifts left-padded RoPE positions** away from the LTX training distribution (quality risk). Last-resort knob.
 
 ## Frame Count Reference
@@ -329,7 +443,7 @@ Higher frame counts require more RAM. With int4 on 32GB, 97 frames at 512x320 is
 
 | Variant | HuggingFace | Notes |
 |---------|-------------|-------|
-| bf16 | [mlx-community/ltx-2.5-mlx](https://huggingface.co/mlx-community/ltx-2.5-mlx) | Tested with this compatibility branch |
+| bf16 | [mlx-community/ltx-2.5-mlx](https://huggingface.co/mlx-community/ltx-2.5-mlx) | revision `851cff7`; ~110 GB; dev + distilled T2V/I2V tested |
 
 The LTX-2.5 weights are governed by the **LTX-2.x Community License
 Agreement**, not this repository's MIT license. No model weights are stored in
@@ -346,6 +460,28 @@ this Git repository.
 Weights are pre-converted to MLX format by [mlx-forge](https://github.com/dgrauet/mlx-forge).
 
 ## Packages
+
+### Distribution policy
+
+This fork is distributed **from source only**. The `ltx-2-mlx`,
+`ltx-core-mlx`, `ltx-pipelines-mlx`, and `ltx-trainer-mlx` project names are
+retained for workspace and upstream API compatibility; this repository does
+not publish those names to PyPI or another package index. Their internal
+dependency declarations are therefore intentionally resolved through
+`[tool.uv.sources]` when you clone the repository and run `uv sync`.
+
+GitHub releases contain only GitHub's automatically generated source archives.
+CI builds wheels and source distributions to validate packaging, but does not
+upload them. Install this fork from a clone as shown in [Installation](#installation),
+not by installing an identically named package from an external index.
+
+Release automation prefers a GitHub App configured through
+`RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY`. Without those values,
+the `GITHUB_TOKEN` fallback requires **Settings → Actions → General → Workflow
+permissions → Allow GitHub Actions to create and approve pull requests**. The
+fallback resolves dependencies on a read-only runner, transfers only a
+strictly validated `uv.lock`, and performs the push from a separate fresh
+runner before explicitly dispatching CI.
 
 | Package | Description |
 |---------|-------------|

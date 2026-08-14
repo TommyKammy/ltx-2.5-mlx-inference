@@ -20,8 +20,9 @@ class LatentState:
         denoise_mask: Per-token mask: 1.0 = denoise (generate), 0.0 = preserve.
         positions: Positional indices (B, N, num_axes) or None.
         attention_mask: Self-attention mask (B, N, N) with values in [0,1], or None.
-        keyframes_mask: Per-token keyframe marker (B, N, 1). Unlike
-            ``denoise_mask``, 1 marks appended single-frame keyframe tokens.
+        keyframes_mask: Per-token causal-video marker (B, N, 1). Unlike
+            ``denoise_mask``, 1 marks the target video's first latent frame;
+            appended keyframe and reference tokens remain 0.
     """
 
     latent: mx.array
@@ -30,6 +31,48 @@ class LatentState:
     positions: mx.array | None = None
     attention_mask: mx.array | None = None
     keyframes_mask: mx.array | None = None
+
+
+def create_video_keyframes_mask(
+    shape: tuple[int, ...],
+    spatial_dims: tuple[int, int, int],
+    dtype: mx.Dtype = mx.bfloat16,
+) -> mx.array:
+    """Create the LTX-2.5 causal-video keyframe marker.
+
+    LTX-2.5 marks the first ``H * W`` target tokens (the causal VAE's
+    first latent frame).  Conditioning tokens appended later are not marked.
+
+    Args:
+        shape: Target video latent shape ``(B, F*H*W, C)`` before appends.
+        spatial_dims: Target latent dimensions ``(F, H, W)``.
+        dtype: Marker dtype, normally the denoise-mask dtype.
+
+    Returns:
+        Marker tensor with shape ``(B, F*H*W, 1)``.
+
+    Raises:
+        ValueError: If ``shape`` does not match ``spatial_dims``.
+    """
+    if len(shape) != 3:
+        raise ValueError(f"Expected a 3D latent shape (B, N, C), got {shape}")
+
+    F, H, W = spatial_dims
+    expected_tokens = F * H * W
+    if shape[1] != expected_tokens:
+        raise ValueError(
+            "Video latent token count does not match spatial_dims: "
+            f"shape[1]={shape[1]}, expected {F}*{H}*{W}={expected_tokens}"
+        )
+
+    tokens_per_frame = H * W
+    return mx.concatenate(
+        [
+            mx.ones((shape[0], tokens_per_frame, 1), dtype=dtype),
+            mx.zeros((shape[0], expected_tokens - tokens_per_frame, 1), dtype=dtype),
+        ],
+        axis=1,
+    )
 
 
 class VideoConditionByLatentIndex:

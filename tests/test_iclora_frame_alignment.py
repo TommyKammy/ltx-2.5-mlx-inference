@@ -117,3 +117,25 @@ class TestFrameAlignment:
         monkeypatch.setattr(iclora_utils, "probe_video_info", lambda _p: _FakeVideoInfo(num_frames=1))
         _invoke(num_frames=121)
         assert captured_load == [9]
+
+    def test_reference_positions_use_requested_frame_rate(self, captured_load, monkeypatch):
+        observed_frame_rates: list[float] = []
+        real_compute_video_positions = iclora_utils.compute_video_positions
+
+        def probe_positions(num_frames, height, width, frame_rate=24.0):
+            observed_frame_rates.append(frame_rate)
+            return real_compute_video_positions(num_frames, height, width, frame_rate=frame_rate)
+
+        monkeypatch.setattr(iclora_utils, "compute_video_positions", probe_positions)
+        iclora_utils.append_ic_lora_reference_video_conditionings(
+            conditionings=[],
+            video_conditioning=[("/fake/path.mp4", 1.0)],
+            height=704,
+            width=1280,
+            num_frames=121,
+            video_encoder=_FakeEncoder(),
+            reference_downscale_factor=2,
+            frame_rate=30.0,
+        )
+
+        assert observed_frame_rates == [30.0]

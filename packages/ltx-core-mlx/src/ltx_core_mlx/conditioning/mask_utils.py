@@ -84,33 +84,26 @@ def build_attention_mask(
         Attention mask (B, N+M, N+M).
     """
     batch_size = cross_mask.shape[0]
-    total = num_existing_tokens + num_new_tokens
-    mask = mx.zeros((batch_size, total, total))
+    num_previous_reference_tokens = num_existing_tokens - num_noisy_tokens
 
-    # Top-left: preserve existing or fill with 1s
-    if existing_mask is not None:
-        mask = mask.at[:, :num_existing_tokens, :num_existing_tokens].add(existing_mask)
-    else:
-        mask = mask.at[:, :num_existing_tokens, :num_existing_tokens].add(
-            mx.ones((batch_size, num_existing_tokens, num_existing_tokens))
-        )
+    if existing_mask is None:
+        existing_mask = mx.ones((batch_size, num_existing_tokens, num_existing_tokens))
 
-    # Bottom-right: new ref tokens self-attend
-    mask = mask.at[:, num_existing_tokens:, num_existing_tokens:].add(
-        mx.ones((batch_size, num_new_tokens, num_new_tokens))
-    )
+    # Build the four blocks directly. Chaining lazy ``array.at[...].add``
+    # updates can overwrite an earlier disjoint slice on MLX 0.31.2, which is
+    # the minimum runtime required by the Gemma 4 backend.
+    noisy_to_new = mx.broadcast_to(cross_mask[:, None, :], (batch_size, num_noisy_tokens, num_new_tokens))
+    previous_to_new = mx.zeros((batch_size, num_previous_reference_tokens, num_new_tokens))
+    top_right = mx.concatenate([noisy_to_new, previous_to_new], axis=1)
+    top = mx.concatenate([existing_mask, top_right], axis=2)
 
-    # Noisy -> new_ref: cross_mask[:, j] for each column j
-    mask = mask.at[:, :num_noisy_tokens, num_existing_tokens:].add(
-        mx.broadcast_to(cross_mask[:, None, :], (batch_size, num_noisy_tokens, num_new_tokens))
-    )
+    new_to_noisy = mx.broadcast_to(cross_mask[:, :, None], (batch_size, num_new_tokens, num_noisy_tokens))
+    new_to_previous = mx.zeros((batch_size, num_new_tokens, num_previous_reference_tokens))
+    bottom_left = mx.concatenate([new_to_noisy, new_to_previous], axis=2)
+    new_to_new = mx.ones((batch_size, num_new_tokens, num_new_tokens))
+    bottom = mx.concatenate([bottom_left, new_to_new], axis=2)
 
-    # New_ref -> noisy: cross_mask[:, i] for each row i
-    mask = mask.at[:, num_existing_tokens:, :num_noisy_tokens].add(
-        mx.broadcast_to(cross_mask[:, :, None], (batch_size, num_new_tokens, num_noisy_tokens))
-    )
-
-    return mask
+    return mx.concatenate([top, bottom], axis=1)
 
 
 def update_attention_mask(

@@ -17,6 +17,7 @@ from ltx_core_mlx.conditioning.types.latent_cond import (
     apply_conditioning,
     apply_denoise_mask,
     create_initial_state,
+    create_video_keyframes_mask,
     noise_latent_state,
 )
 from ltx_core_mlx.conditioning.types.reference_video_cond import VideoConditionByReferenceLatent
@@ -82,6 +83,18 @@ class TestLatentState:
         state = create_initial_state((1, 1, 4), seed=42)
         assert state.latent.shape == (1, 1, 4)
         assert state.denoise_mask.shape == (1, 1, 1)
+
+    def test_video_keyframes_mask_marks_only_first_latent_frame(self):
+        mask = create_video_keyframes_mask((2, 12, 4), spatial_dims=(3, 2, 2))
+
+        assert mask.shape == (2, 12, 1)
+        assert mask.dtype == mx.bfloat16
+        assert mx.all(mask[:, :4] == 1).item()
+        assert mx.all(mask[:, 4:] == 0).item()
+
+    def test_video_keyframes_mask_rejects_mismatched_shape(self):
+        with pytest.raises(ValueError, match="token count"):
+            create_video_keyframes_mask((1, 11, 4), spatial_dims=(3, 2, 2))
 
 
 # ---------------------------------------------------------------------------
@@ -596,6 +609,7 @@ class TestVideoConditionByKeyframeIndex:
 
     def test_appends_tokens(self):
         state = create_initial_state((1, 8, 4), seed=42)
+        state.keyframes_mask = create_video_keyframes_mask((1, 8, 4), (4, 1, 2))
         cond = self._make_cond(frame_idx=0, num_tokens=2)
         new_state = cond.apply(state, spatial_dims=(4, 1, 2))
         assert new_state.latent.shape == (1, 10, 4)
@@ -603,8 +617,16 @@ class TestVideoConditionByKeyframeIndex:
         assert new_state.denoise_mask.shape == (1, 10, 1)
         assert new_state.keyframes_mask is not None
         assert new_state.keyframes_mask.shape == (1, 10, 1)
-        assert mx.all(new_state.keyframes_mask[:, :8] == 0).item()
-        assert mx.all(new_state.keyframes_mask[:, 8:] == 1).item()
+        assert mx.all(new_state.keyframes_mask[:, :2] == 1).item()
+        assert mx.all(new_state.keyframes_mask[:, 2:] == 0).item()
+
+    def test_appended_keyframe_does_not_create_marker(self):
+        state = create_initial_state((1, 8, 4), seed=42)
+        cond = self._make_cond(frame_idx=0, num_tokens=2)
+
+        new_state = cond.apply(state, spatial_dims=(4, 1, 2))
+
+        assert new_state.keyframes_mask is None
 
     def test_strength_default(self):
         state = create_initial_state((1, 8, 4), seed=42)
@@ -671,6 +693,7 @@ class TestVideoConditionByKeyframeIndex:
     def test_sequential_application(self):
         """Two keyframes applied sequentially should append independently."""
         state = create_initial_state((1, 8, 4), seed=42)
+        state.keyframes_mask = create_video_keyframes_mask((1, 8, 4), (4, 1, 2))
         cond0 = self._make_cond(frame_idx=0, num_tokens=2)
         cond1 = self._make_cond(frame_idx=3, num_tokens=2)
         state = cond0.apply(state, spatial_dims=(4, 1, 2))
@@ -678,8 +701,8 @@ class TestVideoConditionByKeyframeIndex:
         # 8 original + 2 kf0 + 2 kf1 = 12
         assert state.latent.shape == (1, 12, 4)
         assert state.keyframes_mask is not None
-        assert mx.all(state.keyframes_mask[:, :8] == 0).item()
-        assert mx.all(state.keyframes_mask[:, 8:] == 1).item()
+        assert mx.all(state.keyframes_mask[:, :2] == 1).item()
+        assert mx.all(state.keyframes_mask[:, 2:] == 0).item()
 
 
 # ---------------------------------------------------------------------------
@@ -693,6 +716,18 @@ class TestVideoConditionByReferenceLatent:
         new_state = cond.apply(state, spatial_dims=(4, 1, 2))
         assert new_state.latent.shape == (1, 12, 4)
         assert new_state.denoise_mask.shape == (1, 12, 1)
+
+    def test_appended_reference_preserves_only_target_first_frame_marker(self):
+        state = create_initial_state((1, 8, 4), seed=42)
+        state.keyframes_mask = create_video_keyframes_mask((1, 8, 4), (4, 1, 2))
+        cond = VideoConditionByReferenceLatent(reference_latent=mx.ones((1, 4, 4)))
+
+        new_state = cond.apply(state, spatial_dims=(4, 1, 2))
+
+        assert new_state.keyframes_mask is not None
+        assert new_state.keyframes_mask.shape == (1, 12, 1)
+        assert mx.all(new_state.keyframes_mask[:, :2] == 1).item()
+        assert mx.all(new_state.keyframes_mask[:, 2:] == 0).item()
 
     def test_strength_default(self):
         state = create_initial_state((1, 8, 4), seed=42)

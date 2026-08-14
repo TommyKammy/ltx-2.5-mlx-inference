@@ -1,15 +1,15 @@
 name: relock-on-release-pr
 
 # release-please bumps the pyproject versions but not uv.lock; re-lock on its PR
-# so the committed lockfile matches the released version. This is the automated
-# equivalent of the manual uv.lock resync that the 0.14.12 release missed.
+# so the committed lockfile matches the released version. Dependency resolution
+# and repository writes intentionally run on separate, fresh runners.
 on:
   pull_request:
     branches: [main]
     paths: [pyproject.toml]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: relock-${{ github.head_ref }}
@@ -17,45 +17,160 @@ concurrency:
 
 jobs:
   relock:
-    # Gate on the release bot: only a Bot-authored `release-please--` PR (i.e. the
-    # release GitHub App) runs the relock. A human collaborator who forges a
-    # `release-please--` branch has user.type == 'User' and is excluded, so the
-    # token never runs against a crafted pyproject.toml during `uv lock`.
+    # Gate on the release bot: only a Bot-authored `release-please--` PR runs
+    # dependency resolution. Human-authored lookalike branches are excluded.
     if: >-
       github.event.pull_request.user.type == 'Bot' &&
       startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
-        id: app-token
-        with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.head_ref }}
-          # Do NOT persist the token in .git/config. `uv lock` resolves and may build
-          # dependencies (arbitrary code via PEP 517 build backends); a persisted
-          # token would be readable by that code. The push step re-supplies it.
           persist-credentials: false
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
         with:
-          enable-cache: true
+          version: "0.11.28"
+          # `uv lock` can execute dependency build hooks. Keep caching and all
+          # repository write credentials outside this runner.
+          enable-cache: false
       - name: Install Python
         run: uv python install 3.12
       - name: Regenerate uv.lock
         run: uv lock
-      - name: Commit and push if changed
+      - name: Upload only the regenerated lockfile
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: release-lock-${{ github.run_id }}
+          path: uv.lock
+          if-no-files-found: error
+          retention-days: 1
+
+  push:
+    needs: relock
+    if: always() && needs.relock.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Detect release GitHub App credentials
+        id: app-config
         env:
-          # Token is exposed only to this final step, which runs trusted git
-          # commands — not to the uv lock step that executes dependency code.
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HEAD_REF: ${{ github.head_ref }}
+          RELEASE_APP_CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID || secrets.RELEASE_APP_CLIENT_ID }}
+          RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          if [[ -n "$RELEASE_APP_CLIENT_ID" && -n "$RELEASE_APP_PRIVATE_KEY" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release App credentials are not configured; using the same-repository workflow token."
+          fi
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        id: app-token
+        if: steps.app-config.outputs.configured == 'true'
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID || secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.head_ref }}
+          persist-credentials: false
+      - name: Download regenerated lockfile
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release-lock-${{ github.run_id }}
+          path: /tmp/release-lock
+      - name: Validate and install the lockfile artifact
+        run: |
+          python - <<'PY'
+          from copy import deepcopy
+          from pathlib import Path
+          import tomllib
+
+          artifact = Path("/tmp/release-lock/uv.lock")
+          if not artifact.is_file() or artifact.is_symlink():
+              raise SystemExit("uv.lock artifact must be one regular file")
+          if artifact.stat().st_size > 20 * 1024 * 1024:
+              raise SystemExit("uv.lock artifact is unexpectedly large")
+
+          lock = tomllib.loads(artifact.read_text())
+          previous_lock = tomllib.loads(Path("uv.lock").read_text())
+          project = tomllib.loads(Path("pyproject.toml").read_text())
+          expected_version = project["project"]["version"]
+          workspace_names = {
+              "ltx-2-mlx",
+              "ltx-core-mlx",
+              "ltx-pipelines-mlx",
+              "ltx-trainer-mlx",
+          }
+          workspace_packages = [
+              package
+              for package in lock.get("package", [])
+              if package.get("name") in workspace_names
+          ]
+          versions = {package["name"]: package["version"] for package in workspace_packages}
+          if len(workspace_packages) != len(versions):
+              raise SystemExit("uv.lock artifact contains duplicate workspace packages")
+          if set(versions) != workspace_names or set(versions.values()) != {expected_version}:
+              raise SystemExit(
+                  f"workspace lock versions do not match {expected_version}: {versions}"
+              )
+
+          def normalized(value):
+              result = deepcopy(value)
+              packages = [
+                  package
+                  for package in result.get("package", [])
+                  if package.get("name") in workspace_names
+              ]
+              names = [package["name"] for package in packages]
+              if len(packages) != len(workspace_names) or set(names) != workspace_names:
+                  raise SystemExit(f"invalid workspace package records: {names}")
+              for package in packages:
+                  package["version"] = "<workspace-version>"
+              return result
+
+          if normalized(lock) != normalized(previous_lock):
+              raise SystemExit(
+                  "uv.lock artifact changes data beyond the four workspace versions"
+              )
+          PY
+          cp -- /tmp/release-lock/uv.lock uv.lock
+          status=$(git status --porcelain --untracked-files=all)
+          if [[ -n "$status" && "$status" != " M uv.lock" ]]; then
+            echo "::error::Artifact changed files other than uv.lock: $status"
+            exit 1
+          fi
+      - name: Commit lockfile if changed
+        id: lock-commit
         run: |
           if ! git diff --quiet uv.lock; then
-            git config user.name "ltx-2-mlx-release"
-            git config user.email "release@users.noreply.github.com"
-            git add uv.lock
-            git commit -m "chore: sync uv.lock with release version"
-            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"
+            git \
+              -c core.hooksPath=/dev/null \
+              -c user.name="ltx-2-mlx-release" \
+              -c user.email="release@users.noreply.github.com" \
+              commit --only uv.lock -m "chore: sync uv.lock with release version"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Push lockfile if changed and dispatch CI
+        env:
+          PUSH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          LOCK_CHANGED: ${{ steps.lock-commit.outputs.changed }}
+          APP_CONFIGURED: ${{ steps.app-config.outputs.configured }}
+        run: |
+          if [[ "$LOCK_CHANGED" == "true" ]]; then
+            git -c core.hooksPath=/dev/null push \
+              "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              "HEAD:${HEAD_REF}"
+          fi
+          # App-token pushes emit the normal pull_request synchronize CI. The
+          # workflow-token fallback needs an explicit dispatch instead.
+          if [[ "$APP_CONFIGURED" != "true" ]]; then
+            gh workflow run ci.yml --ref "$HEAD_REF"
           fi

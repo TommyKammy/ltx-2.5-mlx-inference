@@ -2,7 +2,16 @@
 
 Reference for all CLI subcommands of `ltx-2-mlx`, the pipeline class
 backing each, and which memory / performance flags apply where.
-Current as of **v0.12.1**.
+Current as of **v0.14.19**.
+
+> [!IMPORTANT]
+> The tested `mlx-community/ltx-2.5-mlx` revision (`851cff7`) ships both dev and
+> pre-fused distilled transformers. Distilled, one-stage, and two-stage T2V/I2V
+> have been smoke-tested. Because the snapshot has no standalone distilled
+> LoRA, stage 2 automatically reloads the pre-fused distilled checkpoint at
+> strength 1.0; custom strengths require a separate compatible LoRA. Other
+> pipelines still require their documented inputs or task LoRAs. Pass
+> `--model` explicitly; the CLI default remains the LTX-2.3 q8 repository.
 
 For the underlying architecture and conventions, see
 [CLAUDE.md](../CLAUDE.md). For the high-level user-facing overview,

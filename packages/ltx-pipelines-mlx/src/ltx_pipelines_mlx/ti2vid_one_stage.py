@@ -143,6 +143,8 @@ class TI2VidOneStagePipeline(TI2VidTwoStagesPipeline):
         Returns:
             Tuple of (video_latent, audio_latent) at target resolution.
         """
+        self._require_dev_transformer()
+
         # --- Text encoding (positive + negative for CFG; Prompt Relay encodes the
         # combined prompt on the positive side) ---
         encode_prompt, relay_token_ranges = self._prompt_relay_setup(prompt, prompt_relay)
@@ -196,6 +198,7 @@ class TI2VidOneStagePipeline(TI2VidTwoStagesPipeline):
             sigma=1.0,
             initial_latent=None,
             legacy_scalar_blend=True,
+            mark_first_frame=True,
         )
         audio_state = create_noised_state(
             base_shape=audio_shape,

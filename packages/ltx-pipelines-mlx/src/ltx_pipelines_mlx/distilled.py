@@ -206,6 +206,7 @@ class DistilledPipeline(TI2VidTwoStagesPipeline):
             sigma=1.0,
             initial_latent=None,
             legacy_scalar_blend=True,
+            mark_first_frame=True,
         )
         audio_state = create_noised_state(
             base_shape=audio_shape,
@@ -293,6 +294,7 @@ class DistilledPipeline(TI2VidTwoStagesPipeline):
             sigma=start_sigma,
             initial_latent=video_tokens,
             legacy_scalar_blend=True,
+            mark_first_frame=True,
         )
 
         audio_tokens_1 = output_1.audio_latent

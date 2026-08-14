@@ -102,6 +102,7 @@ def append_ic_lora_reference_video_conditionings(
     num_frames: int,
     video_encoder,
     reference_downscale_factor: int,
+    frame_rate: float = 24.0,
     conditioning_attention_strength: float = 1.0,
     conditioning_attention_mask: mx.array | None = None,
 ) -> None:
@@ -140,7 +141,7 @@ def append_ic_lora_reference_video_conditionings(
         ref_F = encoded_video.shape[2]
         ref_H = encoded_video.shape[3]
         ref_W = encoded_video.shape[4]
-        ref_positions = compute_video_positions(ref_F, ref_H, ref_W)
+        ref_positions = compute_video_positions(ref_F, ref_H, ref_W, frame_rate=frame_rate)
         ref_tokens = encoded_video.transpose(0, 2, 3, 4, 1).reshape(1, -1, 128)
 
         if conditioning_attention_mask is not None:

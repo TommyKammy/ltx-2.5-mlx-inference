@@ -1,9 +1,14 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
 [project]
 name = "ltx-2-mlx"
 version = "0.14.19"
 description = "Unofficial LTX-2.5 inference support for Apple Silicon, built on ltx-2-mlx"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE", "NOTICE.md"]
 requires-python = ">=3.11"
 authors = [{ name = "dgrauet" }]
 keywords = ["mlx", "video-generation", "diffusion", "apple-silicon", "ltx"]
@@ -11,7 +16,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -44,6 +48,12 @@ members = ["packages/*"]
 ltx-core-mlx = { workspace = true }
 ltx-pipelines-mlx = { workspace = true }
 ltx-trainer-mlx = { workspace = true }
+mlx-lm = { git = "https://github.com/ml-explore/mlx-lm.git", rev = "254d153fdeb6f150edd4fc5a54f9828638481fa8" }
+
+# The importable code lives in the three workspace packages. The root project
+# is deliberately a dependency-only metapackage.
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
 
 [tool.ruff]
 line-length = 120

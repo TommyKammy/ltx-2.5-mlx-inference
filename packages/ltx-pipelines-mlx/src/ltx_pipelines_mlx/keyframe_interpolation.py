@@ -75,10 +75,11 @@ class KeyframeInterpolationPipeline(TI2VidTwoStagesPipeline):
         gemma_model_id: Gemma model for text encoding.
         low_memory: Aggressive memory management.
         dev_transformer: Filename of the dev (non-distilled) transformer weights
-            inside model_dir (e.g. ``transformer-dev.safetensors``). When provided,
+            inside model_dir (e.g. ``transformer-dev.safetensors``). When used,
             stage 1 uses this model and stage 2 fuses the distilled LoRA on top.
         distilled_lora: Filename of the distilled LoRA weights inside model_dir.
-            Required when ``dev_transformer`` is set.
+            If absent at strength 1.0, stage 2 loads the equivalent pre-fused
+            distilled transformer instead.
         distilled_lora_strength: Strength for the distilled LoRA fusion (default 1.0).
     """
 
@@ -88,8 +89,8 @@ class KeyframeInterpolationPipeline(TI2VidTwoStagesPipeline):
         gemma_model_id: str = "mlx-community/gemma-3-12b-it-4bit",
         low_memory: bool = True,
         low_ram_streaming: bool = False,
-        dev_transformer: str | None = None,
-        distilled_lora: str | None = None,
+        dev_transformer: str | None = "transformer-dev.safetensors",
+        distilled_lora: str | None = "ltx-2.3-22b-distilled-lora-384.safetensors",
         distilled_lora_strength: float = 1.0,
     ):
         super().__init__(
@@ -143,6 +144,8 @@ class KeyframeInterpolationPipeline(TI2VidTwoStagesPipeline):
         Returns:
             Tuple of (video_latent, audio_latent) at full resolution.
         """
+        self._require_dev_transformer()
+
         if keyframe_strengths is None:
             keyframe_strengths = [1.0] * len(keyframe_images)
         elif len(keyframe_strengths) != len(keyframe_images):
@@ -215,7 +218,7 @@ class KeyframeInterpolationPipeline(TI2VidTwoStagesPipeline):
         # --- Stage 1: Half resolution with keyframe conditioning ---
         F = F_half  # already computed above
         video_shape_1 = (1, F * H_half * W_half, 128)
-        audio_T = compute_audio_token_count(num_frames)
+        audio_T = compute_audio_token_count(num_frames, frame_rate=frame_rate)
         audio_shape = (1, audio_T, 128)
 
         video_positions_1 = compute_video_positions(F, H_half, W_half, frame_rate=frame_rate)
@@ -247,6 +250,7 @@ class KeyframeInterpolationPipeline(TI2VidTwoStagesPipeline):
             seed=seed,
             sigma=1.0,
             initial_latent=None,
+            mark_first_frame=True,
         )
         audio_state_1 = create_noised_state(
             base_shape=audio_shape,
@@ -369,6 +373,7 @@ class KeyframeInterpolationPipeline(TI2VidTwoStagesPipeline):
             seed=seed + 2,
             sigma=start_sigma,
             initial_latent=video_tokens_up,
+            mark_first_frame=True,
         )
 
         # Audio: no conditionings, just noise on stage-1 audio latent.

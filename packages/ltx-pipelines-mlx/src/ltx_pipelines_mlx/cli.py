@@ -1,19 +1,19 @@
 """Command-line interface for ltx-2-mlx.
 
 Usage:
-    ltx-2-mlx generate --prompt "a cat walking" --output out.mp4
-    ltx-2-mlx generate --prompt "animate this" --image photo.jpg -o anim.mp4
-    ltx-2-mlx generate --prompt "a scene" --two-stage -o hires.mp4
-    ltx-2-mlx generate --prompt "a scene" --two-stages-hq --stage1-steps 20 -o hq.mp4
-    ltx-2-mlx a2v --prompt "music video" --audio music.wav -o a2v.mp4
-    ltx-2-mlx retake --prompt "new scene" --video source.mp4 --start 1 --end 3 -o retake.mp4
-    ltx-2-mlx extend --prompt "continue" --video source.mp4 --extend-frames 2 -o extended.mp4
-    ltx-2-mlx keyframe --prompt "transition" --start img1.png --end img2.png -o kf.mp4
-    ltx-2-mlx ic-lora --prompt "scene" --lora lora.safetensors 1.0 --video-conditioning depth.mp4 1.0 -o out.mp4
-    ltx-2-mlx enhance --prompt "a cat walking" --mode t2v
-    ltx-2-mlx info --model dgrauet/ltx-2.3-mlx-q8
-    ltx-2-mlx train --config training_config.yaml
-    ltx-2-mlx preprocess --videos ./my_videos --model dgrauet/ltx-2.3-mlx-q8 -o ./preprocessed
+    uv run ltx-2-mlx generate --model models/ltx-2.5-mlx --prompt "a cat walking" --distilled --frame-rate 24 -o out.mp4
+    uv run ltx-2-mlx generate --model models/ltx-2.5-mlx --prompt "animate this" --image photo.jpg --distilled --frame-rate 24 -o anim.mp4
+    uv run ltx-2-mlx generate --model dgrauet/ltx-2.3-mlx-q8 --prompt "a scene" --two-stage --frame-rate 24 -o hires.mp4
+    uv run ltx-2-mlx generate --model dgrauet/ltx-2.3-mlx-q8 --prompt "a scene" --two-stages-hq --frame-rate 24 --stage1-steps 20 -o hq.mp4
+    uv run ltx-2-mlx a2v --model dgrauet/ltx-2.3-mlx-q8 --prompt "music video" --audio music.wav --frame-rate 24 -o a2v.mp4
+    uv run ltx-2-mlx retake --model dgrauet/ltx-2.3-mlx-q8 --prompt "new scene" --video source.mp4 --start 1 --end 3 -o retake.mp4
+    uv run ltx-2-mlx extend --model dgrauet/ltx-2.3-mlx-q8 --prompt "continue" --video source.mp4 --extend-frames 2 -o extended.mp4
+    uv run ltx-2-mlx keyframe --model dgrauet/ltx-2.3-mlx-q8 --prompt "transition" --start img1.png --end img2.png --dev-transformer transformer-dev.safetensors --distilled-lora ltx-2.3-22b-distilled-lora-384.safetensors --frame-rate 24 -o kf.mp4
+    uv run ltx-2-mlx ic-lora --model dgrauet/ltx-2.3-mlx-q8 --prompt "scene" --lora lora.safetensors 1.0 --video-conditioning depth.mp4 1.0 --frame-rate 24 -o out.mp4
+    uv run ltx-2-mlx enhance --prompt "a cat walking" --mode t2v
+    uv run ltx-2-mlx info --model models/ltx-2.5-mlx
+    uv run ltx-2-mlx train --config training_config.yaml
+    uv run ltx-2-mlx preprocess --videos ./my_videos --model dgrauet/ltx-2.3-mlx-q8 -o ./preprocessed
 """
 
 from __future__ import annotations
@@ -126,20 +126,20 @@ def main() -> None:
     """Entry point for the ltx-2-mlx CLI."""
     parser = argparse.ArgumentParser(
         prog="ltx-2-mlx",
-        description="LTX-2.3 video generation on Apple Silicon (MLX)",
+        description="LTX-2.5 and LTX-2.3 video generation on Apple Silicon (MLX)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 examples:
-  ltx-2-mlx generate --prompt "a sunset" --output sunset.mp4
-  ltx-2-mlx generate --prompt "animate" --image photo.jpg -o anim.mp4
-  ltx-2-mlx generate --prompt "a scene" --two-stage -o hires.mp4
-  ltx-2-mlx a2v --prompt "music video" --audio music.wav -o a2v.mp4
-  ltx-2-mlx retake --prompt "new scene" --video source.mp4 --start 1 --end 3 -o out.mp4
-  ltx-2-mlx extend --prompt "continue" --video source.mp4 --extend-frames 2 -o out.mp4
-  ltx-2-mlx keyframe --prompt "transition" --start img1.png --end img2.png -o out.mp4
-  ltx-2-mlx ic-lora --prompt "scene" --lora lora.safetensors 1.0 --video-conditioning depth.mp4 1.0 -o out.mp4
-  ltx-2-mlx enhance --prompt "a cat walking" --mode t2v
-  ltx-2-mlx info --model dgrauet/ltx-2.3-mlx-q4
+  uv run ltx-2-mlx generate --model models/ltx-2.5-mlx --prompt "a sunset" --distilled --frame-rate 24 -o sunset.mp4
+  uv run ltx-2-mlx generate --model models/ltx-2.5-mlx --prompt "animate" --image photo.jpg --distilled --frame-rate 24 -o anim.mp4
+  uv run ltx-2-mlx generate --model dgrauet/ltx-2.3-mlx-q8 --prompt "a scene" --two-stage --frame-rate 24 -o hires.mp4
+  uv run ltx-2-mlx a2v --model dgrauet/ltx-2.3-mlx-q8 --prompt "music video" --audio music.wav --frame-rate 24 -o a2v.mp4
+  uv run ltx-2-mlx retake --model dgrauet/ltx-2.3-mlx-q8 --prompt "new scene" --video source.mp4 --start 1 --end 3 -o out.mp4
+  uv run ltx-2-mlx extend --model dgrauet/ltx-2.3-mlx-q8 --prompt "continue" --video source.mp4 --extend-frames 2 -o out.mp4
+  uv run ltx-2-mlx keyframe --model dgrauet/ltx-2.3-mlx-q8 --prompt "transition" --start img1.png --end img2.png --dev-transformer transformer-dev.safetensors --distilled-lora ltx-2.3-22b-distilled-lora-384.safetensors --frame-rate 24 -o out.mp4
+  uv run ltx-2-mlx ic-lora --model dgrauet/ltx-2.3-mlx-q8 --prompt "scene" --lora lora.safetensors 1.0 --video-conditioning depth.mp4 1.0 --frame-rate 24 -o out.mp4
+  uv run ltx-2-mlx enhance --prompt "a cat walking" --mode t2v
+  uv run ltx-2-mlx info --model models/ltx-2.5-mlx
 """,
     )
     sub = parser.add_subparsers(dest="command")
@@ -201,7 +201,10 @@ examples:
     gen.add_argument(
         "--two-stage",
         action="store_true",
-        help="Two-stage pipeline: dev model + CFG at half-res, upscale, distilled LoRA refine (requires q8 model)",
+        help=(
+            "Two-stage pipeline: dev model + CFG at half-res, upscale, then "
+            "distilled refinement (standalone LoRA or pre-fused transformer)"
+        ),
     )
     gen.add_argument(
         "--two-stages-hq",
@@ -346,13 +349,17 @@ examples:
     kf.add_argument("--stg-scale", type=float, default=None, help="Override STG scale (default: 1.0)")
     kf.add_argument(
         "--dev-transformer",
-        default=None,
-        help="Dev (non-distilled) transformer filename for higher quality stage 1 (e.g. transformer-dev.safetensors)",
+        default="transformer-dev.safetensors",
+        help="Required dev transformer filename for stage 1 (default: transformer-dev.safetensors)",
     )
     kf.add_argument(
         "--distilled-lora",
-        default=None,
-        help="Distilled LoRA filename for stage 2 refinement (e.g. ltx-2.3-22b-distilled-lora-384.safetensors)",
+        default="ltx-2.3-22b-distilled-lora-384.safetensors",
+        help=(
+            "Distilled LoRA filename for stage 2 refinement. At strength 1.0, "
+            "a missing LoRA falls back to transformer-distilled.safetensors "
+            "(default: ltx-2.3-22b-distilled-lora-384.safetensors)"
+        ),
     )
     kf.add_argument("--lora-strength", type=float, default=1.0, help="Distilled LoRA strength (default: 1.0)")
 
@@ -773,11 +780,11 @@ def _cmd_generate(args: argparse.Namespace) -> None:
         if args.two_stages_hq:
             from ltx_pipelines_mlx.ti2vid_two_stages_hq import TI2VidTwoStagesHQPipeline as PipeClass
 
-            mode_name = "HQ Two-Stage (res_2s + CFG + distilled LoRA)"
+            mode_name = "HQ Two-Stage (res_2s + CFG + distilled refinement)"
         else:
             from ltx_pipelines_mlx.ti2vid_two_stages import TI2VidTwoStagesPipeline as PipeClass
 
-            mode_name = "Two-Stage (Euler + CFG + distilled LoRA)"
+            mode_name = "Two-Stage (Euler + CFG + distilled refinement)"
 
         if not args.quiet:
             print(f"Mode: {mode_name}")

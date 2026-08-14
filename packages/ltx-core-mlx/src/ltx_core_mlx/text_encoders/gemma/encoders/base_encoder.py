@@ -47,6 +47,14 @@ class GemmaLanguageModel(nn.Module):
 
         model_config = None
         config_path = Path(path) / "config.json"
+        if not config_path.is_file() and not Path(path).exists():
+            # ``mlx_lm.load`` accepts both local directories and Hugging Face
+            # repository IDs.  Inspect the remote config before handing the
+            # repository to mlx-lm so the text-only Gemma 4 compatibility
+            # mapping below also works for the latter form.
+            from huggingface_hub import hf_hub_download
+
+            config_path = Path(hf_hub_download(repo_id=path, filename="config.json"))
         if config_path.is_file():
             config = json.loads(config_path.read_text())
             if config.get("model_type") == "gemma4_unified":
@@ -236,6 +244,15 @@ class GemmaLanguageModel(nn.Module):
             all_hidden_states.append(h)
             if eval_every and (i + 1) % eval_every == 0:
                 mx.eval(h)
+
+        # mlx-lm's Gemma 4 forward applies the final RMSNorm after the last
+        # transformer block.  Transformers-style hidden-state extraction
+        # exposes that normalized value as the final entry, so replace the raw
+        # last-block output while retaining every preceding intermediate.
+        h = inner.norm(h)
+        all_hidden_states[-1] = h
+        if eval_every:
+            mx.eval(h)
 
         return all_hidden_states
 

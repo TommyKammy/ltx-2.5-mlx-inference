@@ -211,6 +211,7 @@ class LipDubPipeline(ICLoraPipeline):
             num_frames=num_frames,
             video_encoder=self.vae_encoder,
             reference_downscale_factor=self.reference_downscale_factor,
+            frame_rate=frame_rate,
             conditioning_attention_strength=1.0,
             conditioning_attention_mask=None,
         )
@@ -223,6 +224,7 @@ class LipDubPipeline(ICLoraPipeline):
             seed=seed,
             sigma=1.0,
             initial_latent=None,
+            mark_first_frame=True,
         )
         audio_state = create_noised_state(
             base_shape=audio_shape,
@@ -295,6 +297,7 @@ class LipDubPipeline(ICLoraPipeline):
             num_frames=num_frames,
             video_encoder=self.vae_encoder,
             reference_downscale_factor=self.reference_downscale_factor,
+            frame_rate=frame_rate,
             conditioning_attention_strength=1.0,
             conditioning_attention_mask=None,
         )
@@ -320,6 +323,7 @@ class LipDubPipeline(ICLoraPipeline):
             seed=seed + 2,
             sigma=start_sigma,
             initial_latent=video_tokens_up,
+            mark_first_frame=True,
         )
 
         # Stage 2 audio is frozen (upstream noise_scale=0, frozen=True).

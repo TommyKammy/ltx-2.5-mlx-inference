@@ -113,6 +113,8 @@ class TI2VidTwoStagesHQPipeline(TI2VidTwoStagesPipeline):
         / ``tap`` are forwarded to ``res2s_denoise_loop`` exactly as in the
         Euler path.
         """
+        self._require_dev_transformer()
+
         # --- Text encoding (Prompt Relay: encode the combined prompt) ---
         encode_prompt, relay_token_ranges = self._prompt_relay_setup(prompt, prompt_relay)
         video_embeds, audio_embeds, neg_video_embeds, neg_audio_embeds = self._encode_text_with_negative(encode_prompt)
@@ -176,6 +178,7 @@ class TI2VidTwoStagesHQPipeline(TI2VidTwoStagesPipeline):
             sigma=1.0,
             initial_latent=None,
             legacy_scalar_blend=True,
+            mark_first_frame=True,
         )
         audio_state = create_noised_state(
             base_shape=audio_shape,
@@ -297,6 +300,7 @@ class TI2VidTwoStagesHQPipeline(TI2VidTwoStagesPipeline):
             sigma=start_sigma,
             initial_latent=video_tokens,
             legacy_scalar_blend=True,
+            mark_first_frame=True,
         )
 
         # Stage 2 audio: default (mask path) matches legacy noise_latent_state.

@@ -255,15 +255,49 @@ class BasePipeline:
 
     def _load_dev_transformer(self) -> LTXModel:
         """Load the dev (non-distilled) transformer; honors ``_pending_loras``."""
-        assert self._dev_transformer is not None, "_dev_transformer must be set before calling _load_dev_transformer()"
-        dev_path = self.model_dir / self._dev_transformer
-        if not dev_path.exists():
-            raise FileNotFoundError(
-                f"Dev transformer not found: {dev_path}\n"
-                "This pipeline requires the dev model for CFG guidance.\n"
-                "Use: --model dgrauet/ltx-2.3-mlx-q8"
-            )
+        dev_path = self._require_dev_transformer()
         return self._load_transformer_with_optional_streaming(dev_path)
+
+    def _require_dev_transformer(self) -> Path:
+        """Fail before preprocessing when a pipeline cannot use distilled-only weights.
+
+        Dev/CFG pipelines otherwise discover the missing checkpoint only after
+        loading Gemma, a VAE, or source media.  Besides wasting substantial
+        time and memory, that makes any incomplete/distilled-only model
+        directory look like a runtime failure instead of an unsupported
+        pipeline choice.
+
+        Returns:
+            Resolved path to the configured dev transformer.
+
+        Raises:
+            FileNotFoundError: No dev transformer was configured or its file
+                is absent from ``model_dir``.
+        """
+        configured = self._dev_transformer
+        dev_path = self.model_dir / (configured or "transformer-dev.safetensors")
+        if configured is not None and dev_path.is_file():
+            return dev_path
+
+        distilled_path = self._resolve_safetensors(self.model_dir, "transformer-distilled")
+        distilled_hint = ""
+        if distilled_path.is_file():
+            distilled_hint = (
+                f"\nDetected distilled-only weights: {distilled_path.name}. "
+                "Use the distilled generation pipeline (`generate --distilled`) where supported."
+            )
+
+        if configured is None:
+            detail = "No dev transformer was configured for this pipeline."
+        else:
+            detail = f"Dev transformer not found: {dev_path}"
+        raise FileNotFoundError(
+            f"{detail}\n"
+            f"{type(self).__name__} requires a dev (non-distilled) transformer for CFG guidance."
+            f"{distilled_hint}\n"
+            "Provide --dev-transformer with a model directory containing dev weights "
+            "(for example, dgrauet/ltx-2.3-mlx-q8)."
+        )
 
     @staticmethod
     def _resolve_safetensors(model_dir: Path, stem: str) -> Path:

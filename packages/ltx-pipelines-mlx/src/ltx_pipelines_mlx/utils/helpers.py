@@ -15,7 +15,11 @@ from typing import TYPE_CHECKING
 
 import mlx.core as mx
 
-from ltx_core_mlx.conditioning.types.latent_cond import LatentState, noise_latent_state
+from ltx_core_mlx.conditioning.types.latent_cond import (
+    LatentState,
+    create_video_keyframes_mask,
+    noise_latent_state,
+)
 
 if TYPE_CHECKING:
     pass
@@ -90,6 +94,7 @@ def create_noised_state(
     initial_latent: mx.array | None = None,
     dtype: mx.Dtype = mx.bfloat16,
     legacy_scalar_blend: bool = False,
+    mark_first_frame: bool = False,
 ) -> LatentState:
     """Build a noised latent state from conditionings + optional initial latent.
 
@@ -133,6 +138,10 @@ def create_noised_state(
             noise) and preserves bit-equivalence for callsites whose
             legacy code went through ``noise_latent_state`` (audio
             Stage 2, keyframe and reference-append conditionings).
+        mark_first_frame: Mark the first target latent frame in
+            ``keyframes_mask`` for an LTX-2.5 video state. Must remain False
+            for audio states. Appended conditioning tokens extend this mask
+            with zeros.
 
     Returns:
         Noised LatentState ready to feed into the denoising loop.
@@ -151,6 +160,9 @@ def create_noised_state(
         clean_latent=latent,
         denoise_mask=mx.ones((base_shape[0], base_shape[1], 1), dtype=dtype),
         positions=positions,
+        keyframes_mask=(
+            create_video_keyframes_mask(base_shape, spatial_dims, dtype=dtype) if mark_first_frame else None
+        ),
     )
 
     if legacy_scalar_blend:

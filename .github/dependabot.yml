@@ -13,3 +13,17 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+
+  # Dependabot's pip ecosystem understands pyproject.toml and uv.lock. The
+  # workspace has one shared lockfile, so updates are rooted at `/` rather than
+  # duplicated for each member package.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      python-dependencies:
+        patterns: ["*"]

@@ -134,12 +134,17 @@ class TI2VidTwoStagesPipeline(BasePipeline):
         self.upsampler: LatentUpsampler | None = None
 
     def _fuse_distilled_lora(self, dit: LTXModel) -> None:
-        """Fuse distilled LoRA weights into a loaded transformer in-place.
+        """Prepare the loaded transformer for distilled stage 2.
 
         In ``low_ram_streaming`` mode, in-place LoRA fusion would
         materialize the full transformer (defeating streaming). Instead
         we swap to the pre-fused ``transformer-distilled.safetensors``
         produced by mlx-forge — equivalent at default LoRA strength.
+
+        Non-streaming mode normally fuses the standalone LoRA into the dev
+        model. Some model snapshots (including LTX-2.5) ship only the
+        equivalent pre-fused distilled transformer; at strength 1.0, reload
+        that checkpoint instead of failing late after stage 1.
         """
         if self.low_ram_streaming:
             self._swap_to_distilled_streamer()
@@ -148,10 +153,18 @@ class TI2VidTwoStagesPipeline(BasePipeline):
         lora_stem = Path(self._distilled_lora).stem
         lora_path = self._resolve_safetensors(self.model_dir, lora_stem)
         if not lora_path.exists():
+            distilled_path = self._resolve_safetensors(self.model_dir, "transformer-distilled")
+            if abs(self._distilled_lora_strength - 1.0) <= 1e-6 and distilled_path.is_file():
+                self.dit = None
+                del dit
+                aggressive_cleanup()
+                self.dit = self._load_transformer_with_optional_streaming(distilled_path)
+                return
             raise FileNotFoundError(
                 f"Distilled LoRA not found: {lora_path}\n"
-                "Two-stage requires the distilled LoRA for Stage 2.\n"
-                "Use: --model dgrauet/ltx-2.3-mlx-q8"
+                "Stage 2 requires either the standalone distilled LoRA or, "
+                "at strength 1.0, transformer-distilled.safetensors.\n"
+                "Use a complete model snapshot or reset --distilled-lora-strength to 1.0."
             )
         lora_raw = dict(mx.load(str(lora_path)))
         lora_remapped = _remap_lora_keys(lora_raw)
@@ -354,6 +367,8 @@ class TI2VidTwoStagesPipeline(BasePipeline):
         Returns:
             Tuple of (video_latent, audio_latent) at full resolution.
         """
+        self._require_dev_transformer()
+
         # --- Text encoding (Prompt Relay: encode the combined prompt; the negative
         # prompt is a fixed default, so it is unaffected by the local prompts) ---
         encode_prompt, relay_token_ranges = self._prompt_relay_setup(prompt, prompt_relay)
@@ -421,6 +436,7 @@ class TI2VidTwoStagesPipeline(BasePipeline):
             sigma=1.0,
             initial_latent=None,
             legacy_scalar_blend=True,
+            mark_first_frame=True,
         )
         audio_state = create_noised_state(
             base_shape=audio_shape,
@@ -554,6 +570,7 @@ class TI2VidTwoStagesPipeline(BasePipeline):
             sigma=start_sigma,
             initial_latent=video_tokens,
             legacy_scalar_blend=True,
+            mark_first_frame=True,
         )
 
         # Stage 2 audio: legacy used noise_latent_state (bf16 mask path),

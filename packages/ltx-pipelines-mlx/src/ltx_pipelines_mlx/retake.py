@@ -35,6 +35,7 @@ from ltx_core_mlx.components.patchifiers import compute_video_latent_shape
 from ltx_core_mlx.conditioning.types.latent_cond import (
     LatentState,
     TemporalRegionMask,
+    create_video_keyframes_mask,
     noise_latent_state,
 )
 from ltx_core_mlx.model.audio_vae import encode_audio
@@ -177,6 +178,8 @@ class RetakePipeline(BasePipeline):
         Returns:
             Tuple of (video_latent, audio_latent).
         """
+        self._require_dev_transformer()
+
         video_latent, audio_latent, meta = self._encode_source_video(video_path)
         return self.retake(
             prompt=prompt,
@@ -224,6 +227,8 @@ class RetakePipeline(BasePipeline):
         Returns:
             Tuple of (extended_video_latent, extended_audio_latent).
         """
+        self._require_dev_transformer()
+
         video_latent, audio_latent, meta = self._encode_source_video(video_path)
         return self.extend(
             prompt=prompt,
@@ -279,6 +284,8 @@ class RetakePipeline(BasePipeline):
         Returns:
             Tuple of (video_latent, audio_latent).
         """
+        self._require_dev_transformer()
+
         # --- Text encoding (positive + negative for CFG) ---
         video_embeds, audio_embeds, neg_video_embeds, neg_audio_embeds = self._encode_text_with_negative(prompt)
 
@@ -307,6 +314,7 @@ class RetakePipeline(BasePipeline):
             clean_latent=source_tokens,
             denoise_mask=denoise_mask,
             positions=video_positions,
+            keyframes_mask=create_video_keyframes_mask(source_tokens.shape, (F, H, W)),
         )
         video_state = noise_latent_state(video_state, sigma=1.0, seed=seed)
 
@@ -417,6 +425,8 @@ class RetakePipeline(BasePipeline):
         Returns:
             Tuple of (extended_video_latent, extended_audio_latent).
         """
+        self._require_dev_transformer()
+
         video_embeds, audio_embeds, neg_video_embeds, neg_audio_embeds = self._encode_text_with_negative(prompt)
 
         if self.dit is None:
@@ -494,6 +504,7 @@ class RetakePipeline(BasePipeline):
             clean_latent=clean_video,
             denoise_mask=video_denoise_mask,
             positions=video_positions,
+            keyframes_mask=create_video_keyframes_mask(clean_video.shape, (F_total, H, W)),
         )
         video_state = noise_latent_state(video_state, sigma=1.0, seed=seed)
 

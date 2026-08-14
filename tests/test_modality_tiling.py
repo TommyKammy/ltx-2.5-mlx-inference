@@ -179,13 +179,11 @@ class TestVideoModalityTiler:
 
 
 class TestTiledLTXModel:
-    def test_single_tile_matches_baseline(self):
-        """Wrapping a model in TiledLTXModel with a 1x1x1 tiler must
-        produce the same output as the bare model (single tile == identity)."""
-        from ltx_core_mlx.components.modality_tiling import TiledLTXModel
-        from ltx_core_mlx.model.transformer.model import LTXModel, LTXModelConfig
+    @staticmethod
+    def _tiny_model_config():
+        from ltx_core_mlx.model.transformer.model import LTXModelConfig
 
-        cfg = LTXModelConfig(
+        return LTXModelConfig(
             num_layers=2,
             video_dim=32,
             audio_dim=16,
@@ -200,6 +198,14 @@ class TestTiledLTXModel:
             ff_mult=2.0,
             timestep_embedding_dim=32,
         )
+
+    def test_single_tile_matches_baseline(self):
+        """Wrapping a model in TiledLTXModel with a 1x1x1 tiler must
+        produce the same output as the bare model (single tile == identity)."""
+        from ltx_core_mlx.components.modality_tiling import TiledLTXModel
+        from ltx_core_mlx.model.transformer.model import LTXModel
+
+        cfg = self._tiny_model_config()
         mx.random.seed(7)
         model = LTXModel(cfg)
         mx.eval(model.parameters())
@@ -226,3 +232,43 @@ class TestTiledLTXModel:
         mx.eval(baseline_v, baseline_a, wrapped_v, wrapped_a)
         assert mx.allclose(baseline_v, wrapped_v, atol=1e-5, rtol=1e-5).item()
         assert mx.allclose(baseline_a, wrapped_a, atol=1e-5, rtol=1e-5).item()
+
+    def test_multi_tile_slices_video_keyframes_mask(self):
+        """The LTX-2.5 keyframe marker must follow the tile token subset.
+
+        Regression: the full ``(B, Nv, 1)`` mask was forwarded with a tiled
+        ``(B, tile_Nv, D)`` latent, causing a broadcast error inside
+        ``LTXModel._apply_keyframes_abs_pos_embedding``.
+        """
+        from ltx_core_mlx.components.modality_tiling import TiledLTXModel
+        from ltx_core_mlx.model.transformer.model import LTXModel
+
+        cfg = self._tiny_model_config()
+        cfg.use_keyframes_abs_pos_embedding = True
+        mx.random.seed(11)
+        model = LTXModel(cfg)
+        mx.eval(model.parameters())
+
+        F, H, W = 1, 1, 4
+        Nv, Na, Nt = F * H * W, 2, 2
+        common = dict(
+            video_latent=mx.random.normal((1, Nv, cfg.video_patch_channels)).astype(mx.bfloat16),
+            audio_latent=mx.random.normal((1, Na, cfg.audio_patch_channels)).astype(mx.bfloat16),
+            timestep=mx.array([0.5]),
+            video_text_embeds=mx.random.normal((1, Nt, cfg.video_dim)).astype(mx.bfloat16),
+            audio_text_embeds=mx.random.normal((1, Nt, cfg.audio_dim)).astype(mx.bfloat16),
+            video_positions=_make_positions(F, H, W),
+            audio_positions=mx.zeros((1, Na, 1)),
+            video_keyframes_mask=mx.array([[[1.0], [0.0], [0.0], [1.0]]]),
+        )
+
+        tiler = VideoModalityTiler(
+            TileCountConfig(width=DimensionTilingConfig(num_tiles=2, overlap=0)),
+            latent_shape=(F, H, W),
+        )
+        wrapped = TiledLTXModel(model, tiler)
+
+        video_out, audio_out = wrapped(**common)
+        mx.eval(video_out, audio_out)
+        assert video_out.shape == common["video_latent"].shape
+        assert audio_out.shape == common["audio_latent"].shape

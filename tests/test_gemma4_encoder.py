@@ -1,10 +1,19 @@
 import json
+from importlib import import_module
 from types import SimpleNamespace
 
 import mlx.core as mx
 
 from ltx_core_mlx.text_encoders.gemma.encoders.base_encoder import GemmaLanguageModel
 from ltx_pipelines_mlx.utils.blocks import PromptEncoder
+
+
+def test_runtime_mlx_lm_provides_gemma4_models():
+    gemma4 = import_module("mlx_lm.models.gemma4")
+    gemma4_text = import_module("mlx_lm.models.gemma4_text")
+
+    assert hasattr(gemma4, "Model")
+    assert hasattr(gemma4_text, "Model")
 
 
 def test_load_maps_unified_config_to_mlx_lm_gemma4(tmp_path, monkeypatch):
@@ -23,6 +32,31 @@ def test_load_maps_unified_config_to_mlx_lm_gemma4(tmp_path, monkeypatch):
     assert captured == {"path": str(tmp_path), "model_config": {"model_type": "gemma4"}}
 
 
+def test_load_maps_remote_unified_config_to_mlx_lm_gemma4(tmp_path, monkeypatch):
+    cached_config = tmp_path / "remote-config.json"
+    cached_config.write_text(json.dumps({"model_type": "gemma4_unified"}))
+    captured = {}
+
+    def fake_download(*, repo_id, filename):
+        captured["download"] = (repo_id, filename)
+        return str(cached_config)
+
+    def fake_load(path, model_config=None):
+        captured["load"] = (path, model_config)
+        return object(), object()
+
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", fake_download)
+    monkeypatch.setattr("mlx_lm.load", fake_load)
+
+    encoder = GemmaLanguageModel()
+    encoder.load("example/gemma4-unified")
+
+    assert captured == {
+        "download": ("example/gemma4-unified", "config.json"),
+        "load": ("example/gemma4-unified", {"model_type": "gemma4"}),
+    }
+
+
 class _FakeEmbedding:
     def __call__(self, token_ids):
         return mx.zeros((*token_ids.shape, 4))
@@ -39,6 +73,15 @@ class _FakeGemma4Layer:
         return h + (self.index + 1), f"kv-{self.index}", self.index
 
 
+class _FakeNorm:
+    def __init__(self):
+        self.called = False
+
+    def __call__(self, h):
+        self.called = True
+        return h + 100
+
+
 class _FakeGemma4Inner:
     def __init__(self):
         self.embed_tokens = _FakeEmbedding()
@@ -46,6 +89,7 @@ class _FakeGemma4Inner:
         self.layers = [_FakeGemma4Layer(0), _FakeGemma4Layer(1), _FakeGemma4Layer(2)]
         self.previous_kvs = [0, 1, 0]
         self.window_size = 4096
+        self.norm = _FakeNorm()
 
 
 def test_gemma4_hidden_states_preserve_shared_kv_dependencies():
@@ -62,7 +106,8 @@ def test_gemma4_hidden_states_preserve_shared_kv_dependencies():
     assert mx.array_equal(states[0], mx.zeros((1, 2, 4)))
     assert mx.array_equal(states[1], mx.ones((1, 2, 4)))
     assert mx.array_equal(states[2], mx.ones((1, 2, 4)) * 3)
-    assert mx.array_equal(states[3], mx.ones((1, 2, 4)) * 6)
+    assert mx.array_equal(states[3], mx.ones((1, 2, 4)) * 106)
+    assert inner.norm.called
     assert inner.layers[2].received_shared_kv == "kv-0"
 
 

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -8,6 +8,7 @@ version = "0.14.19"
 description = "LTX-2 training toolkit ported to MLX for Apple Silicon"
 readme = { text = "MLX training utilities for ltx-2-mlx.", content-type = "text/markdown" }
 license = "MIT"
+license-files = ["LICENSE", "NOTICE.md"]
 requires-python = ">=3.11"
 authors = [{ name = "dgrauet" }]
 keywords = ["mlx", "video-generation", "diffusion", "apple-silicon", "ltx", "training"]
@@ -15,7 +16,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
