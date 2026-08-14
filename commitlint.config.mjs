@@ -6,5 +6,8 @@ export default {
     // still apply.
     'body-max-line-length': [0],
     'footer-max-line-length': [0],
+    // Preserve product and model capitalization such as LTX, MLX, Gemma,
+    // Prompt Relay, and macOS in otherwise conventional commit subjects.
+    'subject-case': [0],
   },
 };
