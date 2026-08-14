@@ -70,6 +70,9 @@ class LTXModelConfig:
     positional_embedding_max_pos: tuple[int, ...] = (20, 2048, 2048)
     audio_positional_embedding_max_pos: tuple[int, ...] = (20,)
     norm_eps: float = 1e-6
+    ff_bias: bool = True
+    audio_ff_bias: bool = True
+    use_keyframes_abs_pos_embedding: bool = False
 
     @classmethod
     def from_checkpoint_config(cls, config: dict) -> LTXModelConfig:
@@ -117,6 +120,9 @@ class LTXModelConfig:
                 t.get("audio_positional_embedding_max_pos", d.audio_positional_embedding_max_pos)
             ),
             norm_eps=t.get("norm_eps", d.norm_eps),
+            ff_bias=t.get("ff_bias", d.ff_bias),
+            audio_ff_bias=t.get("audio_ff_bias", d.audio_ff_bias),
+            use_keyframes_abs_pos_embedding=t.get("use_keyframes_abs_pos_embedding", d.use_keyframes_abs_pos_embedding),
         )
 
     @classmethod
@@ -180,6 +186,9 @@ class LTXModel(nn.Module):
         self.patchify_proj = nn.Linear(config.video_patch_channels, vd)
         self.audio_patchify_proj = nn.Linear(config.audio_patch_channels, ad)
 
+        if config.use_keyframes_abs_pos_embedding:
+            self.keyframes_abs_pos_embedding = mx.zeros((1, vd))
+
         # --- Output projections ---
         self.proj_out = nn.Linear(vd, config.video_patch_channels)
         self.audio_proj_out = nn.Linear(ad, config.audio_patch_channels)
@@ -214,6 +223,8 @@ class LTXModel(nn.Module):
                 av_cross_num_heads=config.av_cross_num_heads,
                 av_cross_head_dim=config.av_cross_head_dim,
                 ff_mult=config.ff_mult,
+                ff_bias=config.ff_bias,
+                audio_ff_bias=config.audio_ff_bias,
                 norm_eps=config.norm_eps,
             )
             for _ in range(config.num_layers)
@@ -280,6 +291,7 @@ class LTXModel(nn.Module):
         audio_latent: mx.array,
         timestep: mx.array,
         video_timesteps: mx.array | None = None,
+        video_keyframes_mask: mx.array | None = None,
     ) -> mx.array:
         """Cheap probe: block 0's modulated video input (TeaCache gate signal).
 
@@ -303,6 +315,7 @@ class LTXModel(nn.Module):
         timestep = timestep.astype(mx.bfloat16)
 
         video_hidden = self.patchify_proj(video_latent)
+        video_hidden = self._apply_keyframes_abs_pos_embedding(video_hidden, video_keyframes_mask)
         t_emb = self._embed_timestep_scalar(timestep)
 
         if video_timesteps is not None:
@@ -312,6 +325,19 @@ class LTXModel(nn.Module):
             video_adaln_emb, _ = self.adaln_single(t_emb)
 
         return self.transformer_blocks[0].compute_video_normed_sa(video_hidden, video_adaln_emb)
+
+    def _apply_keyframes_abs_pos_embedding(
+        self,
+        video_hidden: mx.array,
+        video_keyframes_mask: mx.array | None,
+    ) -> mx.array:
+        """Add the learned LTX-2.5 keyframe marker to selected video tokens."""
+        if video_keyframes_mask is None or not hasattr(self, "keyframes_abs_pos_embedding"):
+            return video_hidden
+        mask = (video_keyframes_mask > 0).astype(video_hidden.dtype)
+        if mask.ndim == 2:
+            mask = mask[..., None]
+        return video_hidden + mask * self.keyframes_abs_pos_embedding.astype(video_hidden.dtype)
 
     def __call__(
         self,
@@ -327,6 +353,7 @@ class LTXModel(nn.Module):
         video_cross_attention_mask: mx.array | None = None,
         video_timesteps: mx.array | None = None,
         audio_timesteps: mx.array | None = None,
+        video_keyframes_mask: mx.array | None = None,
         perturbations: BatchedPerturbationConfig | None = None,
         tap: callable | None = None,
         block_stack_override: callable | None = None,
@@ -388,6 +415,7 @@ class LTXModel(nn.Module):
         # Embed patches
         video_hidden = self.patchify_proj(video_latent)
         audio_hidden = self.audio_patchify_proj(audio_latent)
+        video_hidden = self._apply_keyframes_abs_pos_embedding(video_hidden, video_keyframes_mask)
 
         # --- Timestep embeddings ---
         timestep = timestep.astype(mx.bfloat16)

@@ -142,6 +142,22 @@ class VideoConditionByKeyframeIndex:
         kf_mask = mx.full((state.denoise_mask.shape[0], num_kf, 1), mask_value)
         new_mask = mx.concatenate([state.denoise_mask, kf_mask], axis=1)
 
+        # LTX-2.5 adds a learned absolute-position marker specifically for
+        # appended single-frame keyframe tokens. This is deliberately separate
+        # from denoise_mask: conditioning strength may make a keyframe partially
+        # denoised, but it remains a keyframe token.
+        existing_keyframes_mask = state.keyframes_mask
+        if existing_keyframes_mask is None:
+            existing_keyframes_mask = mx.zeros(
+                (state.latent.shape[0], state.latent.shape[1], 1),
+                dtype=state.denoise_mask.dtype,
+            )
+        keyframe_marker = mx.ones(
+            (state.latent.shape[0], num_kf, 1),
+            dtype=state.denoise_mask.dtype,
+        )
+        new_keyframes_mask = mx.concatenate([existing_keyframes_mask, keyframe_marker], axis=1)
+
         # Extend positions
         new_positions = state.positions
         if state.positions is not None:
@@ -164,4 +180,5 @@ class VideoConditionByKeyframeIndex:
             denoise_mask=new_mask,
             positions=new_positions,
             attention_mask=new_attn_mask,
+            keyframes_mask=new_keyframes_mask,
         )

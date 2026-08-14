@@ -20,6 +20,8 @@ class LatentState:
         denoise_mask: Per-token mask: 1.0 = denoise (generate), 0.0 = preserve.
         positions: Positional indices (B, N, num_axes) or None.
         attention_mask: Self-attention mask (B, N, N) with values in [0,1], or None.
+        keyframes_mask: Per-token keyframe marker (B, N, 1). Unlike
+            ``denoise_mask``, 1 marks appended single-frame keyframe tokens.
     """
 
     latent: mx.array
@@ -27,6 +29,7 @@ class LatentState:
     denoise_mask: mx.array
     positions: mx.array | None = None
     attention_mask: mx.array | None = None
+    keyframes_mask: mx.array | None = None
 
 
 class VideoConditionByLatentIndex:
@@ -85,6 +88,7 @@ class VideoConditionByLatentIndex:
             denoise_mask=new_mask,
             positions=state.positions,
             attention_mask=state.attention_mask,
+            keyframes_mask=state.keyframes_mask,
         )
 
 
@@ -236,6 +240,7 @@ def noise_latent_state(
         denoise_mask=state.denoise_mask,
         positions=state.positions,
         attention_mask=state.attention_mask,
+        keyframes_mask=state.keyframes_mask,
     )
 
 

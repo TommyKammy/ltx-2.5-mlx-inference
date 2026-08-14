@@ -1,6 +1,28 @@
-# ltx-2-mlx
+# ltx-2.5-mlx-inference
 
-Pure MLX port of [LTX-2](https://github.com/Lightricks/LTX-2) for Apple Silicon. Three-package monorepo mirroring the reference structure — inference, pipelines, and training — running natively on Metal.
+Unofficial LTX-2.5 inference support for Apple Silicon, built on
+[dgrauet/ltx-2-mlx](https://github.com/dgrauet/ltx-2-mlx). This branch adds
+compatibility for the LTX-2.5 MLX model layout while preserving the existing
+LTX-2.3 paths.
+
+> [!IMPORTANT]
+> This is an independent community project. It is not affiliated with or
+> endorsed by Lightricks, Apple, or the upstream `ltx-2-mlx` maintainers.
+> Model weights are not included in this repository.
+
+## LTX-2.5 compatibility
+
+The compatibility layer adds:
+
+- Gemma 4 text-encoder loading for the bundled `gemma4-12b-ltx-v1` layout
+- LTX-2.5 transformer configuration and feed-forward bias handling
+- keyframe absolute-position embeddings used by LTX-2.5
+- updated conditioning fields and sampler plumbing
+- regression tests that keep the LTX-2.3 behavior intact
+
+The implementation has been smoke-tested with
+[`mlx-community/ltx-2.5-mlx`](https://huggingface.co/mlx-community/ltx-2.5-mlx)
+for image-to-video generation with native video and audio output.
 
 ## Features
 
@@ -38,10 +60,20 @@ Pure MLX port of [LTX-2](https://github.com/Lightricks/LTX-2) for Apple Silicon.
 ## Installation
 
 ```bash
-git clone https://github.com/dgrauet/ltx-2-mlx.git
-cd ltx-2-mlx
+git clone https://github.com/TommyKammy/ltx-2.5-mlx-inference.git
+cd ltx-2.5-mlx-inference
 uv sync --all-extras
 ```
+
+Download compatible model weights separately. For example:
+
+```bash
+huggingface-cli download mlx-community/ltx-2.5-mlx \
+  --local-dir models/ltx-2.5-mlx
+```
+
+The model repository contains its own license and acceptable-use terms. Read
+and accept those terms before downloading or using the weights.
 
 ## Quick Start
 
@@ -293,6 +325,18 @@ Higher frame counts require more RAM. With int4 on 32GB, 97 frames at 512x320 is
 
 ## Pre-converted Weights
 
+### LTX-2.5
+
+| Variant | HuggingFace | Notes |
+|---------|-------------|-------|
+| bf16 | [mlx-community/ltx-2.5-mlx](https://huggingface.co/mlx-community/ltx-2.5-mlx) | Tested with this compatibility branch |
+
+The LTX-2.5 weights are governed by the **LTX-2.x Community License
+Agreement**, not this repository's MIT license. No model weights are stored in
+this Git repository.
+
+### LTX-2.3
+
 | Variant | HuggingFace | Size | RAM |
 |---------|-------------|------|-----|
 | bf16 | [dgrauet/ltx-2.3-mlx](https://huggingface.co/dgrauet/ltx-2.3-mlx) | ~42 GB | 64 GB+ |
@@ -312,10 +356,18 @@ Weights are pre-converted to MLX format by [mlx-forge](https://github.com/dgraue
 ## Resources
 
 - [LTX-2](https://github.com/Lightricks/LTX-2) — Lightricks reference (ltx-core + ltx-pipelines + ltx-trainer)
+- [dgrauet/ltx-2-mlx](https://github.com/dgrauet/ltx-2-mlx) — upstream MLX implementation
+- [LTX-2.5 MLX weights](https://huggingface.co/mlx-community/ltx-2.5-mlx) — separately licensed model weights
 - [mlx-forge](https://github.com/dgrauet/mlx-forge) — weight conversion tool
 - [Pre-converted weights](https://huggingface.co/collections/dgrauet/ltx-23) — HuggingFace collection
 - [MLX](https://github.com/ml-explore/mlx) — Apple Silicon ML framework
 
 ## License
 
-MIT
+The source code in this repository is licensed under the [MIT License](LICENSE).
+The original `dgrauet/ltx-2-mlx` copyright notice is retained. See
+[NOTICE.md](NOTICE.md) for provenance and modification details.
+
+Model weights, model outputs, and third-party assets are not covered by this
+MIT license. In particular, LTX-2.5 weights are subject to the terms published
+with the applicable Hugging Face model repository.

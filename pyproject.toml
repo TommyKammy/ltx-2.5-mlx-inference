@@ -1,7 +1,7 @@
 [project]
 name = "ltx-2-mlx"
 version = "0.14.19"
-description = "Pure MLX port of LTX-2 for Apple Silicon — inference, pipelines, and training"
+description = "Unofficial LTX-2.5 inference support for Apple Silicon, built on ltx-2-mlx"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -34,8 +34,8 @@ dev = [
 all = ["ltx-2-mlx[trainer,dev]"]
 
 [project.urls]
-Homepage = "https://github.com/dgrauet/ltx-2-mlx"
-Repository = "https://github.com/dgrauet/ltx-2-mlx"
+Homepage = "https://github.com/TommyKammy/ltx-2.5-mlx-inference"
+Repository = "https://github.com/TommyKammy/ltx-2.5-mlx-inference"
 
 [tool.uv.workspace]
 members = ["packages/*"]

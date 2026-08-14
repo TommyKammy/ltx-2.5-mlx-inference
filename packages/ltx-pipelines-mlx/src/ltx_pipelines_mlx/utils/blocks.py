@@ -57,6 +57,7 @@ from ltx_core_mlx.utils.memory import aggressive_cleanup
 from ltx_core_mlx.utils.weights import load_split_safetensors, remap_audio_vae_keys
 
 _materialize = getattr(mx, "eval")  # noqa: B009 -- security hook flags the literal mx.eval pattern
+_DEFAULT_GEMMA_MODEL = "mlx-community/gemma-3-12b-it-4bit"
 
 
 def _resolve_model_dir(model_dir: str | Path) -> Path:
@@ -80,9 +81,12 @@ class PromptEncoder:
     def __init__(
         self,
         model_dir: str | Path,
-        gemma_model_id: str = "mlx-community/gemma-3-12b-it-4bit",
+        gemma_model_id: str = _DEFAULT_GEMMA_MODEL,
     ) -> None:
         self.model_dir = _resolve_model_dir(model_dir)
+        bundled_gemma4 = self.model_dir / "gemma4-12b-ltx-v1"
+        if gemma_model_id == _DEFAULT_GEMMA_MODEL and (bundled_gemma4 / "config.json").is_file():
+            gemma_model_id = str(bundled_gemma4)
         self.gemma_model_id = gemma_model_id
         self._text_encoder: GemmaLanguageModel | None = None
         self._feature_extractor: GemmaFeaturesExtractorV2 | None = None

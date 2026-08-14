@@ -184,7 +184,13 @@ def test_guided_loop_masks_conditional_pass_only():
     from ltx_pipelines_mlx.utils.samplers import guided_denoise_loop
 
     B, nv, na, nt, c = 1, 4, 2, 6, 8
-    v_state = LatentState(mx.zeros((B, nv, c)), mx.zeros((B, nv, c)), mx.ones((B, nv, 1)))
+    keyframes_mask = mx.array([[[0.0], [0.0], [0.0], [1.0]]])
+    v_state = LatentState(
+        mx.zeros((B, nv, c)),
+        mx.zeros((B, nv, c)),
+        mx.ones((B, nv, 1)),
+        keyframes_mask=keyframes_mask,
+    )
     a_state = LatentState(mx.zeros((B, na, c)), mx.zeros((B, na, c)), mx.ones((B, na, 1)))
 
     # cfg_scale != 1 -> unconditional pass runs; stg/modality off -> no ptb/mod passes.
@@ -193,10 +199,12 @@ def test_guided_loop_masks_conditional_pass_only():
     a_factory = create_multimodal_guider_factory(params, negative_context=mx.zeros((B, nt, c)))
 
     recorded: list = []
+    recorded_keyframe_masks: list = []
 
     class _Recorder:
         def __call__(self, **kw):
             recorded.append(kw.get("video_cross_attention_mask"))
+            recorded_keyframe_masks.append(kw.get("video_keyframes_mask"))
             return kw["video_latent"], kw["audio_latent"]
 
     mask = mx.zeros((1, 1, nv, nt))
@@ -218,3 +226,5 @@ def test_guided_loop_masks_conditional_pass_only():
     unmasked = [m for m in recorded if m is None]
     assert len(masked) == 1, f"expected 1 masked pass, got {len(masked)} of {len(recorded)}"
     assert len(unmasked) == 1, f"expected 1 unmasked pass, got {len(unmasked)}"
+    assert len(recorded_keyframe_masks) == 2
+    assert all(mx.array_equal(item, keyframes_mask).item() for item in recorded_keyframe_masks)

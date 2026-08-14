@@ -48,6 +48,15 @@ class VideoConditionByReferenceLatent:
 
         ref_mask = mx.full((state.denoise_mask.shape[0], num_ref, 1), mask_value)
         new_mask = mx.concatenate([state.denoise_mask, ref_mask], axis=1)
+        new_keyframes_mask = state.keyframes_mask
+        if new_keyframes_mask is not None:
+            new_keyframes_mask = mx.concatenate(
+                [
+                    new_keyframes_mask,
+                    mx.zeros((state.latent.shape[0], num_ref, 1), dtype=new_keyframes_mask.dtype),
+                ],
+                axis=1,
+            )
 
         # Extend positions with optional spatial scaling
         new_positions = state.positions
@@ -78,4 +87,5 @@ class VideoConditionByReferenceLatent:
             denoise_mask=new_mask,
             positions=new_positions,
             attention_mask=new_attn_mask,
+            keyframes_mask=new_keyframes_mask,
         )

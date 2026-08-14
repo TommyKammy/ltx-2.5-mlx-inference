@@ -147,6 +147,7 @@ def denoise_loop(
             audio_positions=audio_positions,
             video_attention_mask=video_attention_mask,
             audio_attention_mask=audio_attention_mask,
+            video_keyframes_mask=video_state.keyframes_mask,
         )
         if video_cross_attention_mask is not None:
             call_kwargs["video_cross_attention_mask"] = video_cross_attention_mask
@@ -369,6 +370,7 @@ def res2s_denoise_loop(
             audio_positions=audio_positions,
             video_attention_mask=video_attention_mask,
             audio_attention_mask=audio_attention_mask,
+            video_keyframes_mask=video_state.keyframes_mask,
         )
         # Prompt Relay: positive-context passes only; overridden to None on uncond.
         if video_cross_attention_mask is not None:
@@ -481,6 +483,7 @@ def res2s_denoise_loop(
                 audio_latent=audio_x.astype(mx.bfloat16),
                 timestep=mx.broadcast_to(sig_arr, (B_v,)),
                 video_timesteps=stage1_video_timesteps,
+                video_keyframes_mask=video_state.keyframes_mask,
             )
 
         should_compute_full = True
@@ -724,6 +727,7 @@ def guided_denoise_loop(
             audio_positions=audio_positions,
             video_attention_mask=video_attention_mask,
             audio_attention_mask=audio_attention_mask,
+            video_keyframes_mask=video_state.keyframes_mask,
         )
         # Prompt Relay gates the video->text cross-attention. Applied to every
         # positive-context pass (cond/ptb/mod) via base_kwargs, but overridden to
@@ -747,6 +751,7 @@ def guided_denoise_loop(
                 audio_latent=audio_x,
                 timestep=mx.broadcast_to(sigma_arr, (B,)),
                 video_timesteps=base_kwargs.get("video_timesteps"),
+                video_keyframes_mask=video_state.keyframes_mask,
             )
 
         should_compute_full = True

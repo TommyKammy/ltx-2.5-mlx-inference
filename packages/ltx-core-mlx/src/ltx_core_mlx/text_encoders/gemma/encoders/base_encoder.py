@@ -1,4 +1,4 @@
-"""Gemma 3 language model wrapper via mlx-lm.
+"""Gemma 3 and Gemma 4 language model wrapper via mlx-lm.
 
 Ported from ltx-core/src/ltx_core/text_encoders/gemma/encoders/base_encoder.py
 """
@@ -6,6 +6,7 @@ Ported from ltx-core/src/ltx_core/text_encoders/gemma/encoders/base_encoder.py
 from __future__ import annotations
 
 import functools
+import json
 import os
 from pathlib import Path
 
@@ -44,7 +45,18 @@ class GemmaLanguageModel(nn.Module):
         if path is None:
             raise ValueError("model_path must be provided")
 
-        self._model, self._tokenizer = mlx_lm_load(path)
+        model_config = None
+        config_path = Path(path) / "config.json"
+        if config_path.is_file():
+            config = json.loads(config_path.read_text())
+            if config.get("model_type") == "gemma4_unified":
+                # mlx-lm's Gemma 4 sanitizer already maps the upstream
+                # model.language_model.* keys to its native hierarchy. The
+                # unified wrapper itself is unnecessary for text-only LTX
+                # feature extraction, so select the supported text model.
+                model_config = {"model_type": "gemma4"}
+
+        self._model, self._tokenizer = mlx_lm_load(path, model_config=model_config)
 
     def tokenize(self, text: str, max_length: int = 1024) -> tuple[mx.array, mx.array]:
         """Tokenize a text string with left-padding to max_length.
@@ -132,10 +144,12 @@ class GemmaLanguageModel(nn.Module):
 
         all_hidden_states: list[mx.array] = []
 
-        # Embeddings with Gemma 3 scaling (sqrt(hidden_size))
+        # Embeddings with Gemma scaling (sqrt(hidden_size)). Gemma 4 exposes
+        # the same value as embed_scale, so prefer the model's exact scalar.
         h = inner.embed_tokens(token_ids)
         hidden_size = h.shape[-1]
-        h = h * mx.array(hidden_size**0.5, dtype=mx.bfloat16).astype(h.dtype)
+        embed_scale = getattr(inner, "embed_scale", hidden_size**0.5)
+        h = h * mx.array(embed_scale, dtype=mx.bfloat16).astype(h.dtype)
         all_hidden_states.append(h)
 
         # Build combined causal + padding mask.
@@ -163,10 +177,62 @@ class GemmaLanguageModel(nn.Module):
         # the lazy graph fits the watchdog window. Default is now 1 (per-layer)
         # for all devices. LTX2_GEMMA_EVAL_EVERY=0 disables (full lazy graph).
         eval_every = int(os.environ.get("LTX2_GEMMA_EVAL_EVERY", "1"))
+        if hasattr(inner, "previous_kvs"):
+            return self._get_gemma4_hidden_states(
+                inner,
+                h,
+                all_hidden_states,
+                combined_mask,
+                eval_every,
+            )
+
         for i, layer in enumerate(inner.layers):
             h = layer(h, mask=combined_mask, cache=None)
             if isinstance(h, tuple):
                 h = h[0]
+            all_hidden_states.append(h)
+            if eval_every and (i + 1) % eval_every == 0:
+                mx.eval(h)
+
+        return all_hidden_states
+
+    @staticmethod
+    def _get_gemma4_hidden_states(
+        inner,
+        h: mx.array,
+        all_hidden_states: list[mx.array],
+        combined_mask: mx.array,
+        eval_every: int,
+    ) -> list[mx.array]:
+        """Run Gemma 4 while preserving its full/sliding and shared-KV graph."""
+        per_layer_inputs = [None] * len(inner.layers)
+        cache = [None] * len(inner.layers)
+        masks = []
+        for layer in inner.layers:
+            if layer.layer_type == "sliding_attention" and h.shape[1] > inner.window_size:
+                from mlx_lm.models.base import create_causal_mask
+
+                mask = create_causal_mask(h.shape[1], window_size=inner.window_size)
+                mask = mx.where(mask, mx.array(0, dtype=mx.bfloat16), mx.array(-1e9, dtype=mx.bfloat16))
+                mask = mask[None, None, :, :] + combined_mask
+            else:
+                mask = combined_mask
+            masks.append(mask)
+
+        intermediates = [(None, None)] * len(inner.layers)
+        for i, (layer, layer_cache, mask, previous_kv, per_layer_input) in enumerate(
+            zip(inner.layers, cache, masks, inner.previous_kvs, per_layer_inputs, strict=True)
+        ):
+            shared_kv, offset = intermediates[previous_kv]
+            h, shared_kv, offset = layer(
+                h,
+                mask,
+                layer_cache,
+                per_layer_input=per_layer_input,
+                shared_kv=shared_kv,
+                offset=offset,
+            )
+            intermediates[i] = (shared_kv, offset)
             all_hidden_states.append(h)
             if eval_every and (i + 1) % eval_every == 0:
                 mx.eval(h)

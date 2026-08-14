@@ -73,4 +73,5 @@ class ConditioningItemAttentionStrengthWrapper:
             denoise_mask=new_state.denoise_mask,
             positions=new_state.positions,
             attention_mask=new_attention_mask,
+            keyframes_mask=new_state.keyframes_mask,
         )

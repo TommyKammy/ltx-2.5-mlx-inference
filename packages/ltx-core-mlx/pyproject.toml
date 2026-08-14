@@ -5,8 +5,8 @@ build-backend = "hatchling.build"
 [project]
 name = "ltx-core-mlx"
 version = "0.14.19"
-description = "LTX-2.3 model library ported to MLX for Apple Silicon"
-readme = "../../README.md"
+description = "LTX-2 model library ported to MLX for Apple Silicon"
+readme = { text = "Core MLX model components for ltx-2-mlx.", content-type = "text/markdown" }
 license = "MIT"
 requires-python = ">=3.11"
 authors = [{ name = "dgrauet" }]

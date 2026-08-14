@@ -169,6 +169,7 @@ def create_noised_state(
             denoise_mask=state.denoise_mask,
             positions=state.positions,
             attention_mask=state.attention_mask,
+            keyframes_mask=state.keyframes_mask,
         )
         return state_with_conditionings(state, conditionings, spatial_dims)
 
